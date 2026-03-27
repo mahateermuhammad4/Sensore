@@ -2,7 +2,7 @@
 ## Software Project Report
 
 **Project Title:** Sensore Monitoring Application  
-**Student Name(s):** John Doe, Jane Smith, Alex Johnson  
+**Student Name:** [Your Name / Student ID]  
 **Course Name:** Software Development Module  
 **Instructor Name:** Dr. Alan Turing  
 **Date:** March 2026  
@@ -33,7 +33,7 @@ Currently, there is no software specifically built to manage, process, or displa
 This process is incredibly slow, highly prone to human error, and completely unworkable for monitoring multiple patients at a time. Without a centralised dashboard to calculate historical trends or trigger real-time alerts, the hardware mat itself is useless to busy clinicians.
 
 ### Proposed System Overview
-We propose to build a comprehensive C# WPF (Windows Presentation Foundation) desktop application based on the Model-View-ViewModel (MVVM) architecture to replace this manual process. The software will automatically ingest the CSV files, safely store the data in a local SQLite database using Entity Framework Core, and display it in a user-friendly visual dashboard. 
+I propose to build a comprehensive C# WPF (Windows Presentation Foundation) desktop application based on the Model-View-ViewModel (MVVM) architecture to replace this manual process. The software will automatically ingest the CSV files, safely store the data in a local SQLite database using Entity Framework Core, and display it in a user-friendly visual dashboard. 
 
 The system will enforce role-based access for three types of users: Patients (who can only see their own personal data), Clinicians (who monitor their assigned patients), and Admins (who exclusively manage accounts). The application will automatically calculate critical pressure metrics in the background and flash on-screen warnings during dangerous events.
 
@@ -129,15 +129,38 @@ flowchart LR
 8. As an admin, I want to securely create user accounts and assign patients to clinicians to enforce strict access control.
 
 ### Project Plan
-The project was structured continuously across six weeks:
-- **Week 1:** Requirements Analysis. We gathered user stories, wireframed the XAML layouts on paper, and designed the SQLite Entity-Relationship (ER) diagram.
-- **Week 2:** Database Setup. We constructed the SQLite database using EF Core models and built the login view with BCrypt password authentication.
-- **Week 3:** Backend Logic. We developed the CsvImportService and the BFS (Breadth-First Search) algorithms for calculating the Peak Pressure Index.
-- **Week 4:** UI Design. We connected the Data Binding for the visual heatmap and integrated the OxyPlot library for the time-series charts.
-- **Week 5:** Clinician Views. We built the Clinician and Admin dashboards, along with the threaded comment feature.
-- **Week 6:** Testing and Polish. We wrote unit tests, implemented the PDF export feature using QuestPDF, and completed this final documentation.
+As a solo developer, the project was structured continuously across six weeks of full-stack development:
+- **Week 1:** Requirements Analysis. I gathered user stories, wireframed the XAML layouts on paper, and designed the SQLite Entity-Relationship (ER) diagram.
+- **Week 2:** Database Setup. I constructed the SQLite database using EF Core models and built the login view with BCrypt password authentication.
+- **Week 3:** Backend Logic. I developed the CsvImportService and the BFS (Breadth-First Search) algorithms for calculating the Peak Pressure Index.
+- **Week 4:** UI Design. I connected the Data Binding for the visual heatmap and integrated the OxyPlot library for the time-series charts.
+- **Week 5:** Clinician Views. I built the Clinician and Admin dashboards, along with the threaded comment feature.
+- **Week 6:** Testing and Polish. I wrote unit tests, implemented the PDF export feature using QuestPDF, and completed this final documentation.
 
-*[PLACEHOLDER: Insert Gantt Chart Screenshot Here. The chart should display the 6-week schedule outlined above, tracking the progression from Requirements to Delivery.]*
+```mermaid
+gantt
+    title Sensore Software Development Project Plan
+    dateFormat  YYYY-MM-DD
+    axisFormat  %m/%d
+    
+    section Requirements
+    User Stories & ER Diagram             :done,    req1, 2026-03-01, 7d
+    
+    section Data & Auth
+    SQLite Base & EF Core Setup           :done,    db1,  after req1, 7d
+    
+    section Backend
+    CsvImportService & BFS Algorithm      :done,    be1,  after db1, 7d
+    
+    section Frontend
+    WPF Heatmap & OxyPlot Charts          :done,    fe1,  after be1, 7d
+    
+    section Dashboards
+    Clinician & Admin Views               :done,    dash1, after fe1, 7d
+    
+    section Testing
+    xUnit Tests & PDF Export              :done,    test1, after dash1, 7d
+```
 
 ### Resources Used
 - **Development Environment:** Visual Studio 2022 Community Edition.
@@ -259,7 +282,7 @@ For the graphs, we integrated the `OxyPlot` UI library. When a time-period butto
 *[PLACEHOLDER: Insert Screenshot of the live Heatmap UI Here. Highlight the 32x32 gradient grid and the corresponding OxyPlot Line Chart updating next to it.]*
 
 ### Database Implementation
-We built the `AppDbContext` inheriting from Microsoft's standard `DbContext`. Inside the `OnModelCreating` method, we configured fluent APIs to strictly enforce our composite keys (`ClinicianPatients`) and cascade delete rules. We used EF Core migrations, which means every time we updated a table, a uniquely dated migration file was generated, preserving a full history of schema evolution and ensuring anyone can recreate the local SQLite database trivially.
+I built the `AppDbContext` inheriting from Microsoft's standard `DbContext`. Inside the `OnModelCreating` method, I configured fluent APIs to strictly enforce composite keys (`ClinicianPatients`) and cascade delete rules. I used EF Core migrations, which means every time I updated a table, a uniquely dated migration file was generated, preserving a full history of schema evolution and ensuring the local SQLite database can be recreated trivially.
 
 ### Backend Logic and Operations
 The most complex computational logic lives in the `PressureAnalysisService`. 
@@ -275,9 +298,9 @@ We designed a specific flow to allow clinicians and patients to communicate:
 4. The Clinician types a professional response and hits reply. The `ReplyToCommentCommand` executes, saving a new Comment entity where `ParentCommentId` explicitly points to the initial comment, creating an unbreakable thread chain.
 
 ### Coding Practices
-We operated as a professional team and maintained extreme code hygiene:
-- **Clean Modularity:** We rigorously followed single-responsibility principles. The class reading the CSV file is completely separate from the class calculating the math, which is completely separate from the SQLite database saver.
-- **Exception Handling:** We wrapped all critical service methods in robust try-catch blocks. Any SQLite crash (`DbUpdateException`) is caught, written silently to a flat log file, and then safely transformed into an `ApplicationException` containing a user-friendly error string. This means the application never silently crashes to the desktop. CSV file formatting errors skip bad rows and provide a summary warning instead of abandoning the entire import entirely.
+Operating as a solo developer, I maintained strict professional code hygiene:
+- **Clean Modularity:** I rigorously followed single-responsibility principles. The class reading the CSV file is completely separate from the class calculating the math, which is completely separate from the SQLite database saver.
+- **Exception Handling:** I wrapped all critical service methods in robust try-catch blocks. Any SQLite crash (`DbUpdateException`) is caught, written silently to a flat log file, and then safely transformed into an `ApplicationException` containing a user-friendly error string. This means the application never silently crashes to the desktop. CSV file formatting errors skip bad rows and provide a summary warning instead of abandoning the entire import entirely.
 
 ---
 
@@ -322,8 +345,8 @@ The Sensore application sits in a safety-adjacent clinical context. If the dashb
 ---
 
 ## 8. Conclusion
-In conclusion, our student team successfully delivered a fully functional, highly secure WPF software application for the Sensore pressure ulcer prevention system. We transformed a messy, unreadable folder of thousands of loose CSV files into an organised, clear, and visually appealing interactive dashboard.
+In conclusion, I successfully delivered a fully functional, highly secure WPF software application for the Sensore pressure ulcer prevention system. I transformed a messy, unreadable folder of thousands of loose CSV files into an organised, clear, and visually appealing interactive dashboard.
 
-The project strictly met its ambitious primary objectives by creating a colour-coded visual heatmap system accompanied by completely automated numerical warnings for life-critical pressure events. Relying firmly on the MVVM architecture gave our codebase structural integrity, allowing us to balance advanced database abstraction with an intuitive graphical interface. 
+The project strictly met its ambitious primary objectives by creating a colour-coded visual heatmap system accompanied by completely automated numerical warnings for life-critical pressure events. Relying firmly on the MVVM architecture gave the codebase structural integrity, allowing for a balance of advanced database abstraction with an intuitive graphical interface. 
 
 The robust background algorithms reliably identify dangerous, clustered pressure zones while intelligently ignoring isolated hardware glitches, conclusively proving that this desktop software provides a practical, scalable, and genuinely helpful medical tool for Graphene Trace’s real-world clinical implementation.
