@@ -138,28 +138,31 @@ As a solo developer, the project was structured continuously across six weeks of
 - **Week 6:** Testing and Polish. I wrote unit tests, implemented the PDF export feature using QuestPDF, and completed this final documentation.
 
 ```mermaid
-gantt
-    title Sensore Software Development Project Plan
-    dateFormat  YYYY-MM-DD
-    axisFormat  %m/%d
-    
-    section Requirements
-    User Stories & ER Diagram             :done,    req1, 2026-03-01, 7d
-    
-    section Data & Auth
-    SQLite Base & EF Core Setup           :done,    db1,  after req1, 7d
-    
-    section Backend
-    CsvImportService & BFS Algorithm      :done,    be1,  after db1, 7d
-    
-    section Frontend
-    WPF Heatmap & OxyPlot Charts          :done,    fe1,  after be1, 7d
-    
-    section Dashboards
-    Clinician & Admin Views               :done,    dash1, after fe1, 7d
-    
-    section Testing
-    xUnit Tests & PDF Export              :done,    test1, after dash1, 7d
+timeline
+    title Sensore Development Schedule
+    Week 1 : Requirements Analysis
+           : User Stories
+           : Entity-Relationship Diagram
+           : XAML Layout Wireframing
+    Week 2 : Database & Auth Setup
+           : SQLite Database Construction
+           : Entity Framework Core Models
+           : BCrypt Login Authentication
+    Week 3 : Backend Data Logic
+           : CsvImportService Development
+           : Breadth-First Search (BFS) Algorithm
+           : Peak Pressure Index (PPI) Math
+    Week 4 : Frontend UI Design
+           : WPF Heatmap UniformGrid Binding
+           : OxyPlot Time-Series Charts
+    Week 5 : Dashboards & Interactions
+           : Clinician Live Monitoring Dashboard
+           : Admin Account Management
+           : Patient Threaded Comment System
+    Week 6 : Testing & Polish
+           : xUnit Unit & Integration Tests
+           : PDF Export Functionality (QuestPDF)
+           : Final Academic Documentation
 ```
 
 ### Resources Used
