@@ -75,31 +75,47 @@ flowchart LR
     Clinician((Clinician))
     Admin((Admin))
 
-    %% System
-    subgraph Sensore Application
+    %% System Boundary
+    subgraph Sensore System
         direction TB
-        UC1([View Dashboard & Heatmap])
-        UC2([Acknowledge Pressure Alert])
-        UC3([Submit Comment on Frame])
-        UC4([View Assigned Patient List])
-        UC5([Generate Clinical PDF Report])
-        UC6([Reply to Patient Comment])
-        UC7([Manage User Accounts])
-        UC8([Assign Patients to Clinicians])
+        
+        %% Core Patient Actions
+        UC1([View Live Heatmap])
+        UC2([Receive & Acknowledge Alert])
+        UC3([View Historical Charts])
+        UC4([Submit Comment on Frame])
+        
+        %% Core Clinician Actions
+        UC5([View Assigned Patients])
+        UC6([Generate PDF Report])
+        UC7([Reply to Patient Comment])
+        
+        %% Core Admin Actions
+        UC8([Create User Account])
+        UC9([Assign Clinician to Patient])
+        
+        %% Extends/Includes Relationships
+        UC10([Calculate Pressure Metrics])
+        UC11([Identify Dangerous Pressure])
+
+        UC1 -.->|<<includes>>| UC10
+        UC10 -.->|<<extends>>| UC11
+        UC11 -.->|<<includes>>| UC2
     end
 
-    %% Relationships
+    %% Actor Connections
     Patient --- UC1
     Patient --- UC2
     Patient --- UC3
+    Patient --- UC4
 
-    Clinician --- UC1
-    Clinician --- UC4
     Clinician --- UC5
     Clinician --- UC6
+    Clinician --- UC7
+    Clinician --- UC4
 
-    Admin --- UC7
     Admin --- UC8
+    Admin --- UC9
 ```
 
 ### User Stories
@@ -168,41 +184,43 @@ We designed a relational database deployed locally via a simple SQLite `sensore.
 erDiagram
     Users {
         int UserId PK
-        string Email
+        string Email UK
         string PasswordHash
-        string Role
+        string Role "Patient, Clinician, Admin"
         int IsActive
     }
     SensorFrames {
         int FrameId PK
         int UserId FK
         string Timestamp
-        string FrameData
+        string FrameData "1024 pixel array"
         float Ppi
         float ContactArea
     }
     Alerts {
         int AlertId PK
-        int FrameId FK
+        int FrameId FK "Unique (1:1)"
         boolean IsAcknowledged
     }
     Comments {
         int CommentId PK
         int FrameId FK
         int AuthorId FK
-        int ParentCommentId FK
+        int ParentCommentId FK "Nullable (Recursive 1:N)"
     }
     ClinicianPatients {
         int ClinicianId PK,FK
         int PatientId PK,FK
     }
 
-    Users ||--o{ SensorFrames : "generates"
-    Users ||--o{ Comments : "authors"
-    SensorFrames ||--o{ Alerts : "triggers"
-    SensorFrames ||--o{ Comments : "provides context for"
-    Users ||--o{ ClinicianPatients : "assigned to"
-    Comments |o--o{ Comments : "replies to"
+    Users ||--o{ SensorFrames : "1 to Many (generates)"
+    Users ||--o{ Comments : "1 to Many (authors)"
+    Users ||--o{ ClinicianPatients : "1 to Many (assigned to)"
+    
+    SensorFrames ||--o| Alerts : "1 to 0..1 (triggers)"
+    SensorFrames ||--o{ Comments : "1 to Many (context for)"
+    
+    Comments |o--o{ Comments : "0..1 to Many (replies to)"
 ```
 
 ### 4.3 MVVM Class Structure
