@@ -1,0 +1,132 @@
+﻿using Microsoft.EntityFrameworkCore;
+using QuestPDF.Fluent;
+using QuestPDF.Helpers;
+using QuestPDF.Infrastructure;
+using Sensore.Data;
+using Sensore.Models;
+using System.IO;
+
+namespace Sensore.Services;
+
+public class ReportService
+{
+    private readonly AppDbContext _dbContext;
+
+    public ReportService(AppDbContext dbContext)
+    {
+        _dbContext = dbContext;
+    }
+
+    public async Task<string> GeneratePatientSummaryReportAsync(int clinicianId, int patientId, DateTime dateFrom, DateTime dateTo)
+    {
+        if (dateTo <= dateFrom)
+        {
+            throw new InvalidOperationException("Report date range is invalid.");
+        }
+
+        var assignmentExists = await _dbContext.ClinicianPatients
+            .AsNoTracking()
+            .AnyAsync(cp => cp.ClinicianId == clinicianId && cp.PatientId == patientId);
+
+        if (!assignmentExists)
+        {
+            throw new UnauthorizedAccessException("Clinician is not assigned to this patient.");
+        }
+
+        var patient = await _dbContext.Users
+            .AsNoTracking()
+            .FirstOrDefaultAsync(u => u.UserId == patientId && u.Role == UserRole.Patient);
+
+        if (patient == null)
+        {
+            throw new InvalidOperationException("Patient not found.");
+        }
+
+        var frames = await _dbContext.SensorFrames
+            .AsNoTracking()
+            .Where(f => f.UserId == patientId && f.Timestamp >= dateFrom && f.Timestamp <= dateTo)
+            .OrderBy(f => f.Timestamp)
+            .ToListAsync();
+
+        if (frames.Count == 0)
+        {
+            throw new InvalidOperationException("No sensor data found for selected date range.");
+        }
+
+        var averagePpi = frames.Average(f => f.Ppi);
+        var peakPpi = frames.Max(f => f.Ppi);
+        var averageContactArea = frames.Average(f => f.ContactArea);
+        var peakContactArea = frames.Max(f => f.ContactArea);
+
+        var today = dateTo.Date;
+        var yesterday = today.AddDays(-1);
+
+        var avgPpiToday = await _dbContext.SensorFrames
+            .AsNoTracking()
+            .Where(f => f.UserId == patientId && f.Timestamp >= today && f.Timestamp < today.AddDays(1))
+            .Select(f => (double?)f.Ppi)
+            .AverageAsync() ?? 0;
+
+        var avgPpiYesterday = await _dbContext.SensorFrames
+            .AsNoTracking()
+            .Where(f => f.UserId == patientId && f.Timestamp >= yesterday && f.Timestamp < yesterday.AddDays(1))
+            .Select(f => (double?)f.Ppi)
+            .AverageAsync() ?? 0;
+
+        var thisHourStart = new DateTime(dateTo.Year, dateTo.Month, dateTo.Day, dateTo.Hour, 0, 0, DateTimeKind.Utc);
+        var sameHourYesterdayStart = thisHourStart.AddDays(-1);
+
+        var avgThisHour = await _dbContext.SensorFrames
+            .AsNoTracking()
+            .Where(f => f.UserId == patientId && f.Timestamp >= thisHourStart && f.Timestamp < thisHourStart.AddHours(1))
+            .Select(f => (double?)f.Ppi)
+            .AverageAsync() ?? 0;
+
+        var avgSameHourYesterday = await _dbContext.SensorFrames
+            .AsNoTracking()
+            .Where(f => f.UserId == patientId && f.Timestamp >= sameHourYesterdayStart && f.Timestamp < sameHourYesterdayStart.AddHours(1))
+            .Select(f => (double?)f.Ppi)
+            .AverageAsync() ?? 0;
+
+        QuestPDF.Settings.License = LicenseType.Community;
+
+        var outputDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Sensore", "Reports");
+        Directory.CreateDirectory(outputDir);
+
+        var safePatient = patient.FullName.Replace(' ', '_');
+        var filePath = Path.Combine(outputDir, $"{safePatient}_{dateFrom:yyyyMMdd}_{dateTo:yyyyMMdd}.pdf");
+
+        Document.Create(container =>
+        {
+            container.Page(page =>
+            {
+                page.Size(PageSizes.A4);
+                page.Margin(24);
+                page.DefaultTextStyle(x => x.FontSize(11));
+
+                page.Content().Column(column =>
+                {
+                    column.Spacing(8);
+                    column.Item().Text("Sensore Summary Report").Bold().FontSize(18);
+                    column.Item().Text($"Patient: {patient.FullName}");
+                    column.Item().Text($"Clinician ID: {clinicianId}");
+                    column.Item().Text($"Date range: {dateFrom:yyyy-MM-dd HH:mm} to {dateTo:yyyy-MM-dd HH:mm}");
+
+                    column.Item().LineHorizontal(1);
+
+                    column.Item().Text($"Average PPI: {averagePpi:F2}");
+                    column.Item().Text($"Peak PPI: {peakPpi:F2}");
+                    column.Item().Text($"Average Contact Area: {averageContactArea:F2}%");
+                    column.Item().Text($"Peak Contact Area: {peakContactArea:F2}%");
+
+                    column.Item().LineHorizontal(1);
+
+                    column.Item().Text($"Day-on-day average PPI: today {avgPpiToday:F2} vs yesterday {avgPpiYesterday:F2}");
+                    column.Item().Text($"This hour vs same hour yesterday: {avgThisHour:F2} vs {avgSameHourYesterday:F2}");
+                });
+            });
+        }).GeneratePdf(filePath);
+
+        return filePath;
+    }
+}

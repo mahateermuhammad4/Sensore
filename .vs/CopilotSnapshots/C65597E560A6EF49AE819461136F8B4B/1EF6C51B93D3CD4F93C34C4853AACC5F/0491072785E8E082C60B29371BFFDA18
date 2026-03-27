@@ -1,0 +1,21 @@
+﻿using System.Windows.Input;
+using Sensore.Infrastructure;
+using Sensore.Models;
+
+namespace Sensore.ViewModels;
+
+public class AdminDashboardViewModel : ViewModelBase
+{
+    private readonly MainViewModel _mainViewModel;
+
+    public AdminDashboardViewModel(MainViewModel mainViewModel, User currentUser)
+    {
+        _mainViewModel = mainViewModel;
+        CurrentUser = currentUser;
+        LogoutCommand = new RelayCommand(_ => _mainViewModel.NavigateToLogin());
+    }
+
+    public User CurrentUser { get; }
+
+    public ICommand LogoutCommand { get; }
+}

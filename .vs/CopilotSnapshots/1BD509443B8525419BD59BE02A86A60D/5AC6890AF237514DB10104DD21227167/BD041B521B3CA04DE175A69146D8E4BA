@@ -1,0 +1,238 @@
+﻿using Microsoft.EntityFrameworkCore;
+using Sensore.Data;
+using Sensore.Models;
+using Sensore.ViewModels;
+
+namespace Sensore.Services;
+
+public class PatientFrameQueryService
+{
+    private readonly AppDbContext _dbContext;
+
+    public PatientFrameQueryService(AppDbContext dbContext)
+    {
+        _dbContext = dbContext;
+    }
+
+    public Task<SensorFrame?> GetLatestFrameAsync(int userId)
+    {
+        return _dbContext.SensorFrames
+            .AsNoTracking()
+            .Where(f => f.UserId == userId)
+            .OrderByDescending(f => f.Timestamp)
+            .FirstOrDefaultAsync();
+    }
+
+    public Task<List<SensorFrame>> GetFramesForWindowAsync(int userId, TimeSpan window)
+    {
+        var threshold = DateTime.UtcNow.Subtract(window);
+
+        return _dbContext.SensorFrames
+            .AsNoTracking()
+            .Where(f => f.UserId == userId && f.Timestamp >= threshold)
+            .OrderBy(f => f.Timestamp)
+            .ToListAsync();
+    }
+
+    public async Task<SensorFrame?> GetFrameForClinicianAsync(int clinicianId, int frameId)
+    {
+        var frame = await _dbContext.SensorFrames
+            .AsNoTracking()
+            .FirstOrDefaultAsync(f => f.FrameId == frameId);
+
+        if (frame == null)
+        {
+            return null;
+        }
+
+        await EnsureClinicianAssignmentAsync(clinicianId, frame.UserId);
+        return frame;
+    }
+
+    public Task<List<Comment>> GetCommentsForFrameAsync(int frameId)
+    {
+        return _dbContext.Comments
+            .AsNoTracking()
+            .Include(c => c.Author)
+            .Where(c => c.FrameId == frameId)
+            .OrderBy(c => c.CreatedAt)
+            .ToListAsync();
+    }
+
+    public async Task AddCommentAsync(int frameId, int authorId, string content, int? parentCommentId = null)
+    {
+        var comment = new Comment
+        {
+            FrameId = frameId,
+            AuthorId = authorId,
+            ParentCommentId = parentCommentId,
+            Content = content,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        _dbContext.Comments.Add(comment);
+        await _dbContext.SaveChangesAsync();
+    }
+
+    public async Task<SensorFrame?> GetLatestFrameForClinicianAsync(int clinicianId, int patientId)
+    {
+        await EnsureClinicianAssignmentAsync(clinicianId, patientId);
+
+        return await _dbContext.SensorFrames
+            .AsNoTracking()
+            .Where(f => f.UserId == patientId)
+            .OrderByDescending(f => f.Timestamp)
+            .FirstOrDefaultAsync();
+    }
+
+    public async Task<List<SensorFrame>> GetFlaggedFramesForClinicianAsync(int clinicianId, int patientId)
+    {
+        await EnsureClinicianAssignmentAsync(clinicianId, patientId);
+
+        return await _dbContext.SensorFrames
+            .AsNoTracking()
+            .Where(f => f.UserId == patientId && f.IsFlagged)
+            .OrderByDescending(f => f.Timestamp)
+            .ToListAsync();
+    }
+
+    public async Task<List<Comment>> GetCommentsForFrameForClinicianAsync(int clinicianId, int frameId)
+    {
+        var frame = await _dbContext.SensorFrames
+            .AsNoTracking()
+            .FirstOrDefaultAsync(f => f.FrameId == frameId);
+
+        if (frame == null)
+        {
+            return new List<Comment>();
+        }
+
+        await EnsureClinicianAssignmentAsync(clinicianId, frame.UserId);
+
+        return await GetCommentsForFrameAsync(frameId);
+    }
+
+    public async Task<int?> GetMostRecentCommentedFrameIdForClinicianAsync(int clinicianId, int patientId)
+    {
+        await EnsureClinicianAssignmentAsync(clinicianId, patientId);
+
+        return await _dbContext.Comments
+            .AsNoTracking()
+            .Join(
+                _dbContext.SensorFrames.AsNoTracking(),
+                c => c.FrameId,
+                f => f.FrameId,
+                (c, f) => new { c.FrameId, c.CreatedAt, f.UserId })
+            .Where(x => x.UserId == patientId)
+            .OrderByDescending(x => x.CreatedAt)
+            .Select(x => (int?)x.FrameId)
+            .FirstOrDefaultAsync();
+    }
+
+    public async Task AddClinicianReplyAsync(int clinicianId, int frameId, int parentCommentId, string content)
+    {
+        var frame = await _dbContext.SensorFrames
+            .AsNoTracking()
+            .FirstOrDefaultAsync(f => f.FrameId == frameId);
+
+        if (frame == null)
+        {
+            throw new InvalidOperationException("Frame not found.");
+        }
+
+        await EnsureClinicianAssignmentAsync(clinicianId, frame.UserId);
+
+        var parentComment = await _dbContext.Comments
+            .AsNoTracking()
+            .FirstOrDefaultAsync(c => c.CommentId == parentCommentId && c.FrameId == frameId);
+
+        if (parentComment == null)
+        {
+            throw new InvalidOperationException("Parent comment not found for the selected frame.");
+        }
+
+        await AddCommentAsync(frameId, clinicianId, content, parentCommentId);
+    }
+
+    public async Task<List<ClinicianPatientSummary>> GetAssignedPatientSummariesAsync(int clinicianId)
+    {
+        var assignedPatients = await _dbContext.ClinicianPatients
+            .AsNoTracking()
+            .Include(cp => cp.Patient)
+            .Where(cp => cp.ClinicianId == clinicianId)
+            .Select(cp => cp.Patient)
+            .Where(p => p != null)
+            .Select(p => p!)
+            .ToListAsync();
+
+        var result = new List<ClinicianPatientSummary>(assignedPatients.Count);
+
+        foreach (var patient in assignedPatients)
+        {
+            var latestFrame = await _dbContext.SensorFrames
+                .AsNoTracking()
+                .Where(f => f.UserId == patient.UserId)
+                .OrderByDescending(f => f.Timestamp)
+                .FirstOrDefaultAsync();
+
+            var activeAlertCount = await _dbContext.Alerts
+                .AsNoTracking()
+                .Include(a => a.Frame)
+                .CountAsync(a => a.Frame != null && a.Frame.UserId == patient.UserId && !a.IsAcknowledged);
+
+            result.Add(new ClinicianPatientSummary
+            {
+                PatientId = patient.UserId,
+                PatientName = patient.FullName,
+                LatestPpi = latestFrame?.Ppi ?? 0,
+                ActiveAlertCount = activeAlertCount,
+                LastUpdated = latestFrame?.Timestamp
+            });
+        }
+
+        return result
+            .OrderByDescending(p => p.LastUpdated)
+            .ThenBy(p => p.PatientName)
+            .ToList();
+    }
+
+    public Task<List<User>> GetUsersByRoleAsync(UserRole role)
+    {
+        return _dbContext.Users
+            .AsNoTracking()
+            .Where(u => u.Role == role)
+            .OrderBy(u => u.FullName)
+            .ToListAsync();
+    }
+
+    public async Task AssignPatientToClinicianAsync(int clinicianId, int patientId)
+    {
+        var exists = await _dbContext.ClinicianPatients
+            .AnyAsync(cp => cp.ClinicianId == clinicianId && cp.PatientId == patientId);
+
+        if (exists)
+        {
+            return;
+        }
+
+        _dbContext.ClinicianPatients.Add(new ClinicianPatient
+        {
+            ClinicianId = clinicianId,
+            PatientId = patientId
+        });
+
+        await _dbContext.SaveChangesAsync();
+    }
+
+    public async Task EnsureClinicianAssignmentAsync(int clinicianId, int patientId)
+    {
+        var assigned = await _dbContext.ClinicianPatients
+            .AsNoTracking()
+            .AnyAsync(cp => cp.ClinicianId == clinicianId && cp.PatientId == patientId);
+
+        if (!assigned)
+        {
+            throw new UnauthorizedAccessException("Clinician is not assigned to this patient.");
+        }
+    }
+}

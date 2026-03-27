@@ -1,0 +1,49 @@
+﻿using Sensore.Infrastructure;
+using Sensore.Models;
+using Sensore.Services;
+
+namespace Sensore.ViewModels;
+
+public class MainViewModel : ViewModelBase
+{
+    private object? _currentViewModel;
+
+    private readonly AuthService _authService;
+
+    public MainViewModel(AuthService authService)
+    {
+        _authService = authService;
+        NavigateToLogin();
+    }
+
+    public User? CurrentUser { get; private set; }
+
+    public object? CurrentViewModel
+    {
+        get => _currentViewModel;
+        private set
+        {
+            _currentViewModel = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public void NavigateToLogin(string? error = null)
+    {
+        CurrentUser = null;
+        CurrentViewModel = new LoginViewModel(this, _authService, error);
+    }
+
+    public void NavigateToDashboard(User user)
+    {
+        CurrentUser = user;
+
+        CurrentViewModel = user.Role switch
+        {
+            UserRole.Patient => new PatientDashboardViewModel(this, user),
+            UserRole.Clinician => new ClinicianDashboardViewModel(this, user),
+            UserRole.Admin => new AdminDashboardViewModel(this, user),
+            _ => throw new InvalidOperationException("Unsupported role")
+        };
+    }
+}

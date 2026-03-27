@@ -1,0 +1,857 @@
+﻿SENSORE
+Pressure Ulcer Prevention System
+Complete WPF Development Plan
+
+
+Platform
+Windows Presentation Foundation (.NET 8) — C#
+Database
+MySQL 8.0 via MySQL Connector/NET + EF Core
+DB Tool
+MySQL Workbench 8.0 CE (already installed)
+IDE
+Visual Studio 2022 Community Edition
+Architecture
+MVVM — Model / View / ViewModel pattern
+Date
+March 2026
+
+1. Project Overview
+
+Sensore is a WPF desktop application developed for Graphene Trace, a MedTech startup based in Chelmsford, UK. The system processes real-time pressure sensor data from a 32×32 e-textile mat used to prevent pressure ulcers in wheelchair users and immobile patients. This development plan covers every aspect of building the application — from environment setup to final deployment — adapted specifically for MySQL Workbench 8.0 CE as the database engine.
+
+1.1 What the Application Must Do
+Import and parse time-stamped CSV files containing 32×32 pressure frames (1,024 values per frame)
+Analyse each frame to compute Peak Pressure Index (PPI) and Contact Area percentage
+Detect dangerous pressure conditions and raise real-time alerts after 3 consecutive high-PPI frames
+Render a live colour-coded 32×32 heatmap on the patient dashboard
+Display time-series charts for PPI and Contact Area over 1h, 6h, 24h, and 7d windows
+Support three distinct user roles: Patient, Clinician, and Administrator
+Allow threaded comments between patients and clinicians linked to specific pressure frames
+Generate PDF summary reports for a selected patient and date range
+Store all data securely in MySQL with BCrypt-hashed passwords
+
+1.2 Key Technology Decisions
+Why MySQL Instead of SQLite?
+The original requirements document specifies SQLite. However, since MySQL Workbench 8.0 CE is
+already installed on your machine, this plan adapts the architecture to use MySQL 8.0.
+
+Advantages of MySQL for this project:
+  • MySQL Workbench gives you a full visual schema designer, query editor, and data browser
+  • MySQL handles larger data volumes more efficiently as the SensorFrame table grows
+  • The EF Core migration workflow is identical — only the connection string and NuGet package differ
+  • MySQL supports indexed REAL columns for fast PPI/ContactArea time-series queries
+
+The change requires: Pomelo.EntityFrameworkCore.MySql (NuGet) instead of EF Core SQLite.
+All LINQ queries, migrations, and model code remain exactly the same.
+
+2. Development Environment Setup
+
+2.1 Required Software
+Tool
+Version / Source
+Purpose
+Visual Studio 2022
+Community (free)
+IDE, debugger, WPF designer
+MySQL Workbench 8.0 CE
+Already installed
+DB schema design & queries
+.NET 8 SDK
+dotnet.microsoft.com
+Runtime and build tools
+Git
+git-scm.com
+Version control
+MySQL Server 8.0
+dev.mysql.com
+Local database server
+
+2.2 Visual Studio Workloads to Install
+.NET Desktop Development (required — includes WPF, XAML designer)
+ASP.NET and web development (optional, useful for QuestPDF preview)
+Individual component: .NET 8.0 Runtime
+
+2.3 MySQL Server Setup (One-Time)
+Download MySQL Server 8.0 Community from dev.mysql.com/downloads/mysql/
+Run installer — choose 'Developer Default' preset
+Set root password. Create a dedicated app user:  sensore_user  with password you define
+Open MySQL Workbench → New Connection → test connection to localhost:3306
+Create the schema: run  CREATE SCHEMA sensore_db CHARACTER SET utf8mb4;  in the query editor
+EF Core migrations will create all tables automatically — no manual SQL needed
+
+2.4 NuGet Packages (install via NuGet Package Manager in Visual Studio)
+Package
+Version
+Purpose
+Pomelo.EntityFrameworkCore.MySql
+8.x
+EF Core driver for MySQL
+Microsoft.EntityFrameworkCore.Tools
+8.x
+EF CLI migrations
+OxyPlot.Wpf
+latest
+Time-series line charts
+BCrypt.Net-Next
+4.x
+Password hashing & verification
+QuestPDF
+2024.x
+PDF report generation
+xUnit
+2.x
+Unit testing framework
+Moq
+4.x
+Mocking for unit tests
+Microsoft.EntityFrameworkCore.InMemory
+8.x
+In-memory DB for integration tests
+
+3. Visual Studio Solution & Project Structure
+
+Create one Solution with two projects inside it:
+
+3.1 Solution Layout
+Sensore.sln  (Solution)
+├── Sensore/                        ← Main WPF application project (.NET 8)
+│   ├── Models/                     ← EF Core entity classes
+│   │   ├── User.cs
+│   │   ├── SensorFrame.cs
+│   │   ├── Alert.cs
+│   │   ├── Comment.cs
+│   │   └── Report.cs
+│   ├── Data/                       ← Database context
+│   │   └── AppDbContext.cs
+│   ├── Services/                   ← All business logic
+│   │   ├── AuthService.cs
+│   │   ├── CsvImportService.cs
+│   │   ├── PressureAnalysisService.cs
+│   │   ├── AlertService.cs
+│   │   └── ReportService.cs
+│   ├── ViewModels/                 ← MVVM ViewModels
+│   │   ├── MainViewModel.cs
+│   │   ├── LoginViewModel.cs
+│   │   ├── PatientDashboardViewModel.cs
+│   │   ├── ClinicianDashboardViewModel.cs
+│   │   ├── PatientDetailViewModel.cs
+│   │   └── AdminDashboardViewModel.cs
+│   ├── Views/                      ← XAML user interface files
+│   │   ├── LoginView.xaml
+│   │   ├── PatientDashboardView.xaml
+│   │   ├── ClinicianDashboardView.xaml
+│   │   ├── PatientDetailView.xaml
+│   │   └── AdminDashboardView.xaml
+│   ├── Converters/                 ← WPF value converters
+│   │   └── BooleanToVisibilityConverter.cs
+│   ├── Migrations/                 ← EF Core auto-generated migrations
+│   ├── Resources/                  ← Shared styles, DataTemplates
+│   │   └── AppResources.xaml
+│   ├── App.xaml / App.xaml.cs      ← Service wiring & startup
+│   └── MainWindow.xaml             ← Shell with ContentControl
+
+└── Sensore.Tests/                  ← xUnit test project
+    ├── UnitTests/
+    │   ├── PressureAnalysisServiceTests.cs
+    │   ├── AlertServiceTests.cs
+    │   ├── CsvImportServiceTests.cs
+    │   └── AuthServiceTests.cs
+    └── IntegrationTests/
+        └── PipelineIntegrationTests.cs
+
+4. Database Design (MySQL 8.0)
+
+The database uses 6 tables implemented via EF Core code-first migrations. All schema changes are made through migrations — never by manually editing tables in MySQL Workbench.
+
+4.1 Entity-Relationship Summary
+From Table
+To Table
+Relationship
+Users (Patient)
+SensorFrames
+One patient → Many frames (FK: UserId)
+SensorFrames
+Alerts
+One frame → Zero or one Alert (FK: FrameId)
+SensorFrames
+Comments
+One frame → Many Comments (FK: FrameId)
+Comments
+Comments
+Self-reference: ParentCommentId (threaded replies)
+Users (Clinician)
+Users (Patient)
+Many-to-Many via ClinicianPatients join table
+Users (Clinician)
+Reports
+One clinician → Many Reports generated (FK: GeneratedBy)
+Users (Patient)
+Reports
+One patient → Many Reports about them (FK: PatientId)
+
+4.2 Table Definitions
+4.2.1 Users Table
+Column
+Type (MySQL)
+Constraints
+Description
+UserId
+INT
+PK, AI
+Auto-increment primary key
+Email
+VARCHAR(255)
+UNIQUE, NN
+Login email — must be unique across all users
+PasswordHash
+VARCHAR(72)
+NN
+BCrypt hash (never plaintext)
+FullName
+VARCHAR(200)
+NN
+Display name shown in the UI
+Role
+ENUM('Patient','Clinician','Admin')
+NN
+Determines which dashboard loads
+IsActive
+TINYINT(1)
+DEFAULT 1
+0 = deactivated; login blocked
+
+4.2.2 SensorFrames Table
+Column
+Type (MySQL)
+Constraints
+Description
+FrameId
+INT
+PK, AI
+Auto-increment primary key
+UserId
+INT
+FK → Users
+The patient this frame belongs to
+Timestamp
+DATETIME
+NN, INDEX
+When the frame was captured (ISO 8601)
+FrameData
+MEDIUMTEXT
+NN
+1,024 comma-separated integers (32×32 grid)
+PPI
+DOUBLE
+INDEX
+Computed Peak Pressure Index — indexed for chart queries
+ContactArea
+DOUBLE
+INDEX
+Contact area percentage — indexed for chart queries
+IsFlagged
+TINYINT(1)
+DEFAULT 0
+1 = alert was triggered; fast filter for clinician view
+
+4.2.3 Alerts, Comments, Reports & ClinicianPatients Tables
+Table
+Key Columns
+Alerts
+AlertId (PK), FrameId (FK), AlertType VARCHAR(50), CreatedAt DATETIME, IsAcknowledged TINYINT
+Comments
+CommentId (PK), FrameId (FK), AuthorId (FK→Users), ParentCommentId (nullable FK self), Content TEXT, CreatedAt DATETIME
+Reports
+ReportId (PK), PatientId (FK), GeneratedBy (FK), DateFrom DATE, DateTo DATE, ReportContent MEDIUMTEXT, GeneratedAt DATETIME
+ClinicianPatients
+ClinicianId (FK→Users) + PatientId (FK→Users) — Composite PK, no extra columns
+
+4.3 MySQL-Specific EF Core Configuration
+AppDbContext — MySQL Connection String (appsettings or App.xaml.cs)
+string connectionString =
+    "Server=localhost;Port=3306;Database=sensore_db;User=sensore_user;Password=YOUR_PASSWORD;";
+
+// In OnConfiguring:
+optionsBuilder.UseMySql(connectionString,
+    ServerVersion.AutoDetect(connectionString));
+
+// Run migrations from Package Manager Console:
+Add-Migration InitialCreate
+Update-Database
+
+// Verify in MySQL Workbench: refresh schema — all 6 tables should appear
+
+5. MVVM Architecture Plan
+
+The Model-View-ViewModel (MVVM) pattern is mandatory for this project. This section specifies every class, its properties, commands, and dependencies.
+
+5.1 Models (Data/Entity Classes)
+Model Class
+Properties & Navigation
+User
+UserId, Email, PasswordHash, FullName, Role (enum: Patient/Clinician/Admin), IsActive. Navigation: ICollection<SensorFrame> Frames; ICollection<Comment> Comments
+SensorFrame
+FrameId, UserId, Timestamp (DateTime), FrameData (string), PPI (double), ContactArea (double), IsFlagged (bool). Navigation: User Patient; ICollection<Alert> Alerts; ICollection<Comment> Comments
+Alert
+AlertId, FrameId, AlertType (string), CreatedAt (DateTime), IsAcknowledged (bool). Navigation: SensorFrame Frame
+Comment
+CommentId, FrameId, AuthorId, ParentCommentId (int?), Content, CreatedAt. Navigation: User Author; SensorFrame Frame; Comment Parent; ICollection<Comment> Replies
+Report
+ReportId, PatientId, GeneratedBy, DateFrom (DateTime), DateTo (DateTime), ReportContent (string), GeneratedAt (DateTime)
+
+5.2 ViewModels
+ViewModel
+Properties & Commands
+MainViewModel
+CurrentViewModel (object — bound to ContentControl). NavigateTo(vm) method. Holds logged-in User. On login success: sets CurrentViewModel to the role-appropriate dashboard VM
+LoginViewModel
+Email (string), Password (string), ErrorMessage (string). LoginCommand: calls AuthService.Authenticate → on success calls MainViewModel.NavigateTo(dashboard)
+PatientDashboardViewModel
+HeatmapCells (ObservableCollection<HeatmapCell>), PPI (double), ContactArea (double), IsAlertVisible (bool), AlertMessage (string), PpiPlotModel (OxyPlot), ContactAreaPlotModel (OxyPlot), CommentText (string). Commands: SelectTimePeriodCommand, SubmitCommentCommand, AcknowledgeAlertCommand, ImportCsvCommand
+ClinicianDashboardViewModel
+PatientList (ObservableCollection<PatientSummary>), SelectedPatient. Commands: SelectPatientCommand (navigates to PatientDetailViewModel), GenerateReportCommand
+PatientDetailViewModel
+HeatmapCells, FlaggedFrames (ObservableCollection), CommentThreads (ObservableCollection<CommentThread>), ReplyText. Commands: ReplyToCommentCommand, GenerateReportCommand
+AdminDashboardViewModel
+UserList (ObservableCollection<User>), NewUserEmail, NewUserFullName, NewUserRole, AssignPatientId, AssignClinicianId. Commands: CreateUserCommand, DeactivateUserCommand, AssignPatientCommand
+
+5.3 ICommand Implementation (RelayCommand)
+Create one reusable RelayCommand class that wraps any Action. All ViewModel commands use this:
+RelayCommand.cs — Place in ViewModels/ folder
+public class RelayCommand : ICommand {
+    private readonly Action<object> _execute;
+    private readonly Func<object, bool> _canExecute;
+    public RelayCommand(Action<object> execute, Func<object,bool> canExecute = null) {
+        _execute = execute; _canExecute = canExecute;
+    }
+    public bool CanExecute(object p) => _canExecute == null || _canExecute(p);
+    public void Execute(object p) => _execute(p);
+    public event EventHandler CanExecuteChanged {
+        add => CommandManager.RequerySuggested += value;
+        remove => CommandManager.RequerySuggested -= value;
+    }
+}
+
+6. Service Layer — Detailed Implementation
+
+6.1 AuthService
+Handles all authentication. Never stores or logs plaintext passwords.
+Method
+Logic
+Authenticate(email, password)
+1. Query Users WHERE Email = email. 2. If null or !IsActive → return null. 3. Call BCrypt.Verify(password, user.PasswordHash). 4. If false → return null. 5. Return the full User entity with Role set.
+CreateUser(email, name, role)
+1. Generate hash: BCrypt.HashPassword(password, workFactor: 12). 2. Create User entity. 3. SaveChangesAsync. Admin-only operation.
+
+6.2 CsvImportService
+Reads CSV files from disk, parses 32-row frames, runs analysis, then bulk-saves to MySQL.
+Read file line-by-line; collect every 32 lines as one frame
+Split each line by comma; parse each of the 32 tokens as integers (1–255)
+If any token fails to parse: skip that row, log error, do not discard whole frame
+On completing 32 valid rows: call PressureAnalysisService.CalculatePPI and CalculateContactArea
+Call AlertService.EvaluateAsync with UserId and PPI
+After ALL frames processed: single SaveChangesAsync — atomic batch commit to MySQL
+Return ParseResult { int FramesSaved, List<string> Errors }
+
+6.3 PressureAnalysisService — Algorithm Details
+6.3.1 PPI Calculation (BFS Flood Fill)
+Parse the FrameData string into a 32×32 int[,] array
+Initialise bool[32,32] visited = all false
+Define lower threshold: const int THRESHOLD = 50
+For each pixel (r, c) in the 32×32 grid:
+  If visited[r,c] is true → skip
+  If frame[r,c] <= THRESHOLD → mark visited, skip
+  Start BFS: enqueue (r,c). regionCount=0, regionMax=0
+  While queue not empty: dequeue pixel, check 4 neighbours (up/down/left/right)
+  If neighbour is in bounds, not visited, and > THRESHOLD: enqueue, mark visited, track count and max
+  After BFS: if regionCount >= 10 → candidate = max(candidate, regionMax)
+Return the highest candidate value found. Return 0 if no qualifying region exists.
+
+6.3.2 Contact Area Calculation
+Linear O(n) scan: iterate all 1,024 pixels. Count pixels where value > THRESHOLD. Return (count / 1024.0) * 100 as a double percentage.
+
+6.4 AlertService
+Maintain Dictionary<int, int> consecutiveCounts keyed by UserId
+On EvaluateAsync(userId, ppi): if ppi > 200 → increment counter; else reset to 0
+When counter reaches 3: create Alert entity, set IsFlagged = true on the frame, raise AlertTriggered event
+AlertTriggered event: PatientDashboardViewModel subscribes and sets IsAlertVisible = true
+AcknowledgeAlertCommand: sets IsAcknowledged = true in DB and hides the banner
+
+6.5 ReportService
+Query SensorFrames for patientId between DateFrom and DateTo
+Compute: average PPI, peak PPI, average ContactArea, peak ContactArea for the period
+Compute day-on-day comparison: average PPI today vs yesterday
+Compute 'this hour vs same hour yesterday' metric
+Use QuestPDF to generate a formatted PDF with patient name, date range, metrics table, and trend summary
+Save generated PDF to application data folder; return file path to ViewModel for display
+
+7. User Interface Implementation (XAML)
+
+7.1 MainWindow — Shell Navigation
+MainWindow.xaml contains only a ContentControl bound to MainViewModel.CurrentViewModel. Navigation is purely ViewModel-driven. A shared ResourceDictionary defines DataTemplates mapping each ViewModel type to its View:
+AppResources.xaml — DataTemplate Mappings
+<DataTemplate DataType="{x:Type vm:LoginViewModel}">
+    <views:LoginView/>
+</DataTemplate>
+<DataTemplate DataType="{x:Type vm:PatientDashboardViewModel}">
+    <views:PatientDashboardView/>
+</DataTemplate>
+<DataTemplate DataType="{x:Type vm:ClinicianDashboardViewModel}">
+    <views:ClinicianDashboardView/>
+</DataTemplate>
+<!-- ...same for Admin and PatientDetail views -->
+
+7.2 Login Screen
+Centred card layout using a Grid with auto-sized rows
+SENSORE logo/title as a large TextBlock
+Email TextBox bound to LoginViewModel.Email (UpdateSourceTrigger=PropertyChanged)
+Password PasswordBox — use code-behind property or attached behavior to bind to LoginViewModel.Password
+Login Button bound to LoginViewModel.LoginCommand
+Error TextBlock bound to LoginViewModel.ErrorMessage (visible only when non-empty)
+
+7.3 Patient Dashboard — Heatmap Implementation
+The 32×32 heatmap uses a WPF UniformGrid with 1,024 Rectangle elements:
+ObservableCollection<HeatmapCell> where HeatmapCell has a Color property (SolidColorBrush)
+Each Rectangle.Fill is bound to the corresponding HeatmapCell.Color
+Color mapping function: value 1 → Blue (#0000FF), value 128 → Yellow (#FFFF00), value 255 → Red (#FF0000)
+Use linear interpolation through the colour spectrum for intermediate values
+When new CSV is imported, update all 1,024 cells in one batch — do NOT update individually to avoid flicker
+UniformGrid Rows=32 Columns=32, each cell approximately 10×10 px for a 320×320 total canvas
+
+7.4 Time-Series Charts (OxyPlot)
+Add OxyPlot.Wpf reference to XAML: xmlns:oxy="http://oxyplot.org/wpf"
+Use <oxy:PlotView Model="{Binding PpiPlotModel}"/> in the View
+Create a PlotModel with one LineSeries for PPI, another for ContactArea
+Time-period buttons (1h / 6h / 24h / 7d) execute SelectTimePeriodCommand with the period as parameter
+ViewModel queries SensorFrames filtered by Timestamp >= (Now - period) for the patient
+After updating the series data: call PpiPlotModel.InvalidatePlot(true) to trigger redraw
+
+7.5 Alert Banner
+Border element at top of Patient Dashboard
+Visibility bound to IsAlertVisible using BoolToVisibilityConverter
+AlertMessage TextBlock shows the timestamp and alert description
+Dismiss Button executes AcknowledgeAlertCommand
+Background: bright amber (#FFC107) to attract attention without panic
+
+7.6 Clinician Dashboard — Patient DataGrid
+WPF DataGrid bound to PatientList ObservableCollection
+Columns: PatientName, LatestPPI, ActiveAlertCount, LastUpdated
+AlertCount column uses a DataTemplateColumn with a red badge when count > 0
+Row click executes SelectPatientCommand → navigates to PatientDetailViewModel
+Generate Report button at top — launches date-range picker dialog
+
+7.7 Comment Thread UI
+Patient view: TextBox for comment entry + Submit button
+Comments listed in a ScrollViewer → ItemsControl
+Each comment shows author name, timestamp, content
+Clinician view: nested ItemsControl under each comment shows replies indented
+Reply TextBox appears inline when clinician clicks Reply on a comment
+ParentCommentId is set to the selected comment's CommentId on save
+
+7.8 Admin Dashboard
+DataGrid of all Users: Name, Email, Role, IsActive status, Edit button
+Create New User form: fields for Email, FullName, Password, Role dropdown
+Assign Patient section: two ComboBoxes (select clinician, select patient) + Assign button
+Deactivate/Reactivate toggle button per user row
+
+8. Six-Week Sprint Development Plan
+
+Week
+Sprint Goal
+Detailed Tasks
+Deliverable
+1
+Setup & Design
+• Install MySQL Server, configure sensore_db schema in Workbench
+• Create Visual Studio solution with two projects
+• Install all NuGet packages
+• Write all 5 Model classes
+• Create AppDbContext with MySQL connection string
+• Run Add-Migration InitialCreate and Update-Database
+• Verify all 6 tables appear in MySQL Workbench
+• Design wireframes for all 4 screens
+Working DB schema visible in Workbench; solution compiles
+2
+Auth & User Management
+• Implement AuthService with BCrypt verification
+• Create LoginViewModel and LoginView XAML
+• Implement MainViewModel shell navigation
+• Set up DataTemplate routing in AppResources.xaml
+• Implement AdminDashboardViewModel and View
+• CreateUserCommand with BCrypt hashing
+• DeactivateUserCommand
+• Write UT-16 through UT-19 (AuthService unit tests)
+Login works; admin can create patient/clinician accounts
+3
+CSV Import & Analysis
+• Implement CsvImportService.ImportAsync
+• Implement PressureAnalysisService (BFS PPI + ContactArea)
+• Implement AlertService with consecutive frame counter
+• Wire all three services together in import pipeline
+• Write UT-01 through UT-15 (analysis + CSV unit tests)
+• Test with sample CSV files in MySQL Workbench — verify SensorFrame rows inserted
+CSV import populates SensorFrames; PPI/ContactArea correct; alerts fire at frame 3
+4
+Patient Dashboard
+• Implement PatientDashboardViewModel
+• Build 32×32 heatmap (UniformGrid + HeatmapCell collection)
+• Implement colour interpolation function
+• Integrate OxyPlot: PPI and ContactArea line charts
+• Implement time-period selector (1h/6h/24h/7d)
+• Implement alert banner with BoolToVisibilityConverter
+• Implement ImportCsvCommand + OpenFileDialog
+• Write manual tests MT-01, MT-02, MT-03
+Patient can log in, see heatmap, charts, and receive alerts
+5
+Clinician & Admin Views
+• Implement ClinicianDashboardViewModel and View (patient DataGrid)
+• Implement PatientDetailViewModel with read-only heatmap + flagged events list
+• Build comment thread UI (patient submit + clinician reply)
+• ReplyToCommentCommand with ParentCommentId set correctly
+• Implement AssignPatientCommand in Admin
+• Write IT-01 through IT-08 integration tests
+• Manual tests MT-04 through MT-07
+All 3 roles fully functional; comment thread works end-to-end
+6
+Reports, Polish & Testing
+• Implement ReportService with QuestPDF PDF generation
+• GenerateReportCommand with date-range picker dialog
+• Add exception handling strategy across all services
+• Add startup health-check routine (DB connectivity + schema version)
+• Run full xUnit test suite; fix any failures
+• UI polish: consistent fonts, colours, spacing
+• Code review: remove unused code, add XML doc comments
+• Final test with 3 roles on a clean database
+All tests pass; reports export as PDF; application is production-ready
+
+9. Testing Plan
+
+9.1 Unit Tests (xUnit + Moq)
+ID
+Test Name
+Scenario
+Expected
+UT-01
+PPI_ReturnsMaxInLargeRegion
+15-pixel region peaking at 220
+Returns 220
+UT-02
+PPI_IgnoresSmallRegions
+5-px region at 240 + 12-px region at 180
+Returns 180 (5-px excluded)
+UT-03
+PPI_AllLowPressure
+All pixels = 1
+Returns 0
+UT-04
+PPI_BoundaryOfTenPixels
+Exactly 10 contiguous pixels at 150
+Returns 150 (boundary inclusive)
+UT-05
+ContactArea_CorrectPercentage
+256 pixels above threshold
+Returns 25.0%
+UT-06
+ContactArea_ZeroCoverage
+All pixels = 1
+Returns 0.0%
+UT-07
+ContactArea_FullCoverage
+All pixels = 255
+Returns 100.0%
+UT-08
+Alert_TriggersAfterThreeFrames
+3 consecutive frames > 200 PPI
+Alert created; IsFlagged = true
+UT-09
+Alert_NoAlertAfterTwoFrames
+2 high frames then 1 low
+No alert created
+UT-10
+Alert_CounterResetsOnLowFrame
+3 high, 1 low, 3 high
+Only 2nd group triggers alert
+UT-11
+Alert_EventRaisedOnce
+Exactly 3 consecutive high frames
+AlertTriggered raised exactly once
+UT-12
+ParseCsv_ValidFile
+Well-formed CSV with 3 frames
+3 SensorFrame objects returned
+UT-13
+ParseCsv_MalformedRow
+Non-integer in row 5
+Row skipped; error logged; rest returned
+UT-14
+ParseCsv_EmptyFile
+Zero-byte file
+Exception with descriptive message
+UT-15
+ParseCsv_IncompleteLastFrame
+CSV ends mid-frame (20 rows only)
+Partial frame discarded; complete frames returned
+UT-16
+Authenticate_ValidCredentials
+Correct email + matching password
+Returns User entity
+UT-17
+Authenticate_WrongPassword
+Correct email, wrong password
+Returns null
+UT-18
+Authenticate_InactiveUser
+Correct credentials, IsActive=0
+Returns null
+UT-19
+Hash_DifferentEachCall
+Same password hashed twice
+Two different hash strings (due to salt)
+
+9.2 Integration Tests
+Integration tests use Microsoft.EntityFrameworkCore.InMemory — a fresh in-memory database per test class. This is faster than MySQL for CI and avoids polluting the real database.
+ID
+Test Name
+Scenario
+Expected
+IT-01
+Login_ValidCredentials
+Valid credentials + in-memory DB
+User returned with correct Role
+IT-02
+Login_InvalidCredentials
+Wrong password submitted
+Null returned
+IT-03
+CsvImport_FramesPersisted
+ImportAsync with valid test CSV
+Correct SensorFrame row count in DB
+IT-04
+CommentSaved_WithCorrectIds
+Patient submits comment for frame #7
+Comment has FrameId=7, correct AuthorId
+IT-05
+ClinicianReply_ParentIdSet
+Clinician replies to CommentId=3
+New comment has ParentCommentId=3
+IT-06
+ClinicianSeesOnlyAssignedPatients
+Clinician with one assigned patient
+Only that patient in the returned list
+IT-07
+AlertPersisted_AfterThreeHighFrames
+3 consecutive high-PPI frames imported
+Alert entity in DB; IsFlagged=true on frame
+IT-08
+ReportContainsMetrics
+ReportService.Generate for 24-hour window
+Returned content contains PPI and ContactArea summary
+
+9.3 Manual UI Tests
+ID
+Scenario
+Steps
+Expected
+MT-01
+Heatmap renders on login
+Log in as patient; observe dashboard
+32×32 coloured grid visible; colours match pressure
+MT-02
+Time period updates chart
+Click '24h' button on dashboard
+Chart extends to 24h; new data points appear
+MT-03
+Alert banner on high pressure
+Import CSV with 3+ consecutive high-PPI frames
+Alert banner shows with correct timestamp
+MT-04
+Admin creates patient account
+Log in as admin; fill create-user form; role=Patient
+New user in list; can log in with those credentials
+MT-05
+Clinician sees only assigned patients
+Log in as clinician assigned to one patient
+Only that patient shown in DataGrid
+MT-06
+Comment reply visible to patient
+Clinician replies; patient logs in
+Reply visible below original comment in thread
+MT-07
+Report export
+Clinician generates report; clicks Export
+PDF saved with correct patient name and date range
+
+10. Security Implementation
+
+10.1 Password Security (BCrypt)
+Use BCrypt.Net-Next package — never SHA256, MD5, or plain text
+Work factor 12 recommended — balances security vs login speed on modern hardware
+On account creation: BCrypt.HashPassword(password, workFactor: 12) → store the 72-char hash string
+On login: BCrypt.Verify(submittedPassword, storedHash) — returns bool
+Never log, display, or pass the plaintext password anywhere in the codebase
+MySQL Workbench confirmation: PasswordHash column should always show $2a$ or $2b$ prefix
+
+10.2 Role-Based Access Control
+Roles are enforced at the ViewModel and Service layer — never relying on UI alone
+Patient queries: always filter WHERE UserId = loggedInUser.UserId
+Clinician queries: always JOIN ClinicianPatients WHERE ClinicianId = loggedInUser.UserId
+Admin: no access to clinical data — only User management tables
+MainViewModel refuses to navigate to a dashboard if Role does not match
+
+10.3 MySQL Connection Security
+Use a dedicated MySQL user (sensore_user) with only SELECT, INSERT, UPDATE on sensore_db
+Do NOT connect as root from the application
+Store the connection string in an app config file — exclude this file from Git (.gitignore)
+For production: consider encrypting the connection string using DPAPI
+
+11. Software Maintenance Plan
+
+Following ISO/IEC 14764, maintenance is categorised into four types. The Sensore system is safety-adjacent — any bug that produces incorrect PPI values or fails to alert requires immediate response.
+
+11.1 Maintenance Categories
+Type
+Description
+Sensore-Specific Examples
+Corrective
+Fix defects after deployment
+Incorrect PPI calculation; login navigation bug; CSV crash on Windows CRLF line endings
+Adaptive
+Update for environment changes
+Upgrade to newer .NET LTS; update Pomelo EF Core for MySQL 9.x; adapt CSV parser for new hardware format
+Perfective
+Enhance based on user feedback
+Add NTH1 metrics (centre-of-pressure, asymmetry index); improve heatmap gradients (NTH2); add Excel export for reports
+Preventive
+Proactive failure prevention
+Refactor CSV parser for whitespace resilience; add DB retry policy; introduce startup health-check validating schema version
+
+11.2 Bug Severity & Response Times
+Severity
+Definition
+Response Time
+Critical
+Data corruption; system unavailable; wrong PPI causing missed alert
+Fix and deploy within 1 working day
+High
+Feature broken for one role; report not generating
+Fix within 3 working days
+Medium
+UI display issue; non-critical error message wrong
+Fix within 2 weeks
+Low
+Minor cosmetic issue; enhancement request
+Next scheduled sprint
+
+11.3 Version Control Strategy (Git Flow)
+main — production-ready releases only; all merges require peer-reviewed pull request
+develop — integration branch; all feature/fix branches merge here first; must pass tests
+feature/[name] — one branch per user story; branched from develop
+hotfix/[name] — critical bugs; branched from main; merged back into both main and develop
+Semantic versioning: MAJOR.MINOR.PATCH (e.g., 1.0.0 for initial release)
+EF Core migration files committed alongside the code that requires them
+
+11.4 MySQL Database Maintenance
+All schema changes through EF Core migrations — never manual SQL edits in Workbench
+Daily backup: copy the sensore_db dump to a backup folder using mysqldump
+SensorFrame records older than 2 years → move to archive table to maintain query performance
+Monthly integrity check: run SELECT * FROM information_schema.TABLES WHERE TABLE_SCHEMA='sensore_db' in Workbench
+Monitor slow queries: enable MySQL slow query log; investigate any query > 3 seconds
+
+11.5 Dependency & Security Reviews
+Monthly: check all NuGet packages for CVE advisories using dotnet list package --vulnerable
+.NET SDK: update to latest LTS within 3 months of official release
+BCrypt work factor reviewed annually — increase if hardware advances make 12 insufficient
+MySQL Server: apply security patches within 2 weeks of release
+GitHub Actions CI: run test suite on every commit; fail build if any test fails
+
+11.6 Startup Health Check
+Before the login screen is shown, run these checks:
+Test MySQL connection: attempt a simple SELECT 1 query
+Verify schema version matches the latest EF Core migration
+Check application data directory has write permissions
+If any check fails: show a clear error dialog with resolution steps — never proceed silently
+
+12. Nice-to-Have Features (NTH)
+
+NTH1 — Additional Pressure Metrics
+Centre-of-Pressure (CoP): weighted average of all active pixel positions — detects postural shift over time
+Left/Right Asymmetry Index: compare sum of left 16 columns vs right 16 columns; express as percentage deviation
+These can be added as computed columns in SensorFrames and calculated in PressureAnalysisService alongside PPI
+
+NTH2 — Enhanced Visualisation
+Smooth colour gradients on heatmap: replace discrete colour steps with HSL interpolation across the full spectrum
+Animated frame transitions: use WPF storyboard to fade between frame updates
+Interactive heatmap: show pixel value tooltip on hover
+OxyPlot chart enhancements: add threshold line annotation at PPI=200 to visually mark the danger zone
+
+13. Quick-Start Checklist
+
+Follow this checklist in order to get from zero to a running application:
+
+#
+Task
+Verify In
+1
+Install Visual Studio 2022 Community with .NET Desktop Development workload
+VS opens without errors
+2
+Install MySQL Server 8.0 (if not already done) and confirm Workbench connects
+MySQL Workbench: Connection test → OK
+3
+Create sensore_db schema in Workbench
+Schema visible in left panel
+4
+Create new WPF Solution in VS with two projects (Sensore + Sensore.Tests)
+Solution Explorer shows both projects
+5
+Install all 8 NuGet packages listed in Section 2.4
+NuGet: no red error icons
+6
+Write Model classes (User, SensorFrame, Alert, Comment, Report)
+Classes compile without errors
+7
+Write AppDbContext with MySQL connection string
+Context has 6 DbSet<T> properties
+8
+Run Add-Migration InitialCreate in Package Manager Console
+Migrations/ folder appears
+9
+Run Update-Database
+Workbench: refresh schema → 6 tables visible
+10
+Implement RelayCommand.cs
+Compiles; no ICommand errors
+11
+Implement AuthService + LoginViewModel + LoginView.xaml
+Login screen loads; test with seeded user
+12
+Implement MainViewModel shell navigation + DataTemplates
+Switching CurrentViewModel changes the displayed view
+13
+Implement PressureAnalysisService + unit tests UT-01 to UT-07
+All 7 unit tests pass in Test Explorer
+14
+Implement CsvImportService + AlertService
+CSV imports; frames saved in Workbench data browser
+15
+Implement PatientDashboardViewModel + heatmap + charts
+Heatmap renders; charts update on time-period click
+16
+Implement Clinician + Admin views + comment thread
+All 3 roles work end-to-end
+17
+Implement ReportService + QuestPDF export
+PDF generated with correct patient metrics
+18
+Run full xUnit test suite (19 unit + 8 integration tests)
+All 27 tests pass in Test Explorer
+19
+Manual test all 7 MT scenarios with 3 different role accounts
+All MT-01 through MT-07 pass
+20
+Code review: remove unused code, add XML doc comments to services
+0 compiler warnings; all public methods documented
+
+
+End of Sensore WPF Development Plan — MySQL Edition

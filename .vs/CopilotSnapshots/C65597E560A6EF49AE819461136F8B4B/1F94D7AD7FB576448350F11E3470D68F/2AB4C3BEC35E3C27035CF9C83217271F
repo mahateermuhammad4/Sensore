@@ -1,0 +1,35 @@
+﻿using Microsoft.EntityFrameworkCore;
+using Sensore.Data;
+using Sensore.Models;
+
+namespace Sensore.Services;
+
+public class PatientFrameQueryService
+{
+    private readonly AppDbContext _dbContext;
+
+    public PatientFrameQueryService(AppDbContext dbContext)
+    {
+        _dbContext = dbContext;
+    }
+
+    public Task<SensorFrame?> GetLatestFrameAsync(int userId)
+    {
+        return _dbContext.SensorFrames
+            .AsNoTracking()
+            .Where(f => f.UserId == userId)
+            .OrderByDescending(f => f.Timestamp)
+            .FirstOrDefaultAsync();
+    }
+
+    public Task<List<SensorFrame>> GetFramesForWindowAsync(int userId, TimeSpan window)
+    {
+        var threshold = DateTime.UtcNow.Subtract(window);
+
+        return _dbContext.SensorFrames
+            .AsNoTracking()
+            .Where(f => f.UserId == userId && f.Timestamp >= threshold)
+            .OrderBy(f => f.Timestamp)
+            .ToListAsync();
+    }
+}

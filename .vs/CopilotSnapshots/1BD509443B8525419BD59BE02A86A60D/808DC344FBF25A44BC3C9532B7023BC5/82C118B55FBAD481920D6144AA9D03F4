@@ -1,0 +1,438 @@
+﻿using System.Collections.ObjectModel;
+using System.Windows;
+using System.Windows.Input;
+using System.Windows.Media;
+using Microsoft.Win32;
+using OxyPlot;
+using OxyPlot.Axes;
+using OxyPlot.Series;
+using Sensore.Infrastructure;
+using Sensore.Models;
+using Sensore.Services;
+
+namespace Sensore.ViewModels;
+
+public class PatientDashboardViewModel : ViewModelBase
+{
+    private readonly MainViewModel _mainViewModel;
+    private readonly CsvImportService _csvImportService;
+    private readonly AlertService _alertService;
+    private readonly PatientFrameQueryService _patientFrameQueryService;
+
+    private bool _isAlertVisible;
+    private string _alertMessage = string.Empty;
+    private string _statusMessage = string.Empty;
+    private string _commentText = string.Empty;
+    private double _ppi;
+    private double _contactArea;
+    private TimeWindowOption _selectedWindow = TimeWindowOption.OneHour;
+    private ObservableCollection<HeatmapCell> _heatmapCells;
+    private int? _currentFrameId;
+    private ObservableCollection<CommentDisplayItem> _comments = new();
+
+    public PatientDashboardViewModel(
+        MainViewModel mainViewModel,
+        User currentUser,
+        CsvImportService csvImportService,
+        AlertService alertService,
+        PatientFrameQueryService patientFrameQueryService)
+    {
+        _mainViewModel = mainViewModel;
+        _csvImportService = csvImportService;
+        _alertService = alertService;
+        _patientFrameQueryService = patientFrameQueryService;
+        CurrentUser = currentUser;
+        _heatmapCells = BuildDefaultHeatmap();
+
+        _alertService.AlertTriggered += OnAlertTriggered;
+
+        ImportCsvCommand = new RelayCommand(async _ => await ImportCsvAsync());
+        AcknowledgeAlertCommand = new RelayCommand(async _ => await AcknowledgeAlertAsync(), _ => IsAlertVisible);
+        SelectTimePeriodCommand = new RelayCommand(async p => await SelectWindowAsync(p));
+        SubmitCommentCommand = new RelayCommand(async _ => await SubmitCommentAsync());
+        LogoutCommand = new RelayCommand(_ => Logout());
+
+        PpiPlotModel = CreateEmptyPlotModel("PPI over time", "PPI");
+        ContactAreaPlotModel = CreateEmptyPlotModel("Contact Area over time", "Contact %");
+
+        _ = LoadDashboardDataAsync();
+    }
+
+    public User CurrentUser { get; }
+
+    public ObservableCollection<HeatmapCell> HeatmapCells
+    {
+        get => _heatmapCells;
+        set
+        {
+            _heatmapCells = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public bool IsAlertVisible
+    {
+        get => _isAlertVisible;
+        set
+        {
+            _isAlertVisible = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public string AlertMessage
+    {
+        get => _alertMessage;
+        set
+        {
+            _alertMessage = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public string StatusMessage
+    {
+        get => _statusMessage;
+        set
+        {
+            _statusMessage = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public double Ppi
+    {
+        get => _ppi;
+        set
+        {
+            _ppi = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public double ContactArea
+    {
+        get => _contactArea;
+        set
+        {
+            _contactArea = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public TimeWindowOption SelectedWindow
+    {
+        get => _selectedWindow;
+        set
+        {
+            _selectedWindow = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public string CommentText
+    {
+        get => _commentText;
+        set
+        {
+            _commentText = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public ObservableCollection<CommentDisplayItem> Comments
+    {
+        get => _comments;
+        set
+        {
+            _comments = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public ICommand ImportCsvCommand { get; }
+    public ICommand AcknowledgeAlertCommand { get; }
+    public ICommand SelectTimePeriodCommand { get; }
+    public ICommand SubmitCommentCommand { get; }
+    public ICommand LogoutCommand { get; }
+
+    public PlotModel PpiPlotModel { get; }
+    public PlotModel ContactAreaPlotModel { get; }
+
+    private async Task ImportCsvAsync()
+    {
+        var picker = new OpenFileDialog
+        {
+            Filter = "CSV files (*.csv)|*.csv|All files (*.*)|*.*",
+            CheckFileExists = true,
+            Multiselect = false
+        };
+
+        if (picker.ShowDialog() != true)
+        {
+            return;
+        }
+
+        try
+        {
+            var result = await _csvImportService.ImportAsync(picker.FileName, CurrentUser.UserId);
+            Ppi = result.LastPpi;
+            ContactArea = result.LastContactArea;
+
+            StatusMessage = result.Errors.Count == 0
+                ? $"Imported {result.FramesSaved} frame(s) successfully."
+                : $"Imported {result.FramesSaved} frame(s) with {result.Errors.Count} warning(s).";
+
+            await LoadDashboardDataAsync();
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Import failed: {ex.Message}";
+        }
+    }
+
+    private async Task SubmitCommentAsync()
+    {
+        if (_currentFrameId is null)
+        {
+            StatusMessage = "No frame is currently loaded to attach a comment.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(CommentText))
+        {
+            StatusMessage = "Enter a comment before submitting.";
+            return;
+        }
+
+        await _patientFrameQueryService.AddCommentAsync(_currentFrameId.Value, CurrentUser.UserId, CommentText.Trim());
+        CommentText = string.Empty;
+        await LoadCommentsAsync(_currentFrameId.Value);
+        StatusMessage = "Comment submitted.";
+    }
+
+    private async Task AcknowledgeAlertAsync()
+    {
+        await _alertService.AcknowledgeLatestAsync(CurrentUser.UserId);
+        IsAlertVisible = false;
+        AlertMessage = string.Empty;
+    }
+
+    private async Task SelectWindowAsync(object? parameter)
+    {
+        if (parameter is not string value)
+        {
+            return;
+        }
+
+        SelectedWindow = value.ToLowerInvariant() switch
+        {
+            "1h" => TimeWindowOption.OneHour,
+            "6h" => TimeWindowOption.SixHours,
+            "24h" => TimeWindowOption.TwentyFourHours,
+            "7d" => TimeWindowOption.SevenDays,
+            _ => SelectedWindow
+        };
+
+        await LoadDashboardDataAsync();
+    }
+
+    private void OnAlertTriggered(object? sender, AlertTriggeredEventArgs e)
+    {
+        if (e.UserId != CurrentUser.UserId)
+        {
+            return;
+        }
+
+        Application.Current.Dispatcher.Invoke(() =>
+        {
+            IsAlertVisible = true;
+            AlertMessage = e.Message;
+        });
+    }
+
+    private async Task LoadDashboardDataAsync()
+    {
+        try
+        {
+            var latestFrame = await _patientFrameQueryService.GetLatestFrameAsync(CurrentUser.UserId);
+            if (latestFrame != null)
+            {
+                Ppi = latestFrame.Ppi;
+                ContactArea = latestFrame.ContactArea;
+                HeatmapCells = BuildHeatmap(latestFrame.FrameData);
+                _currentFrameId = latestFrame.FrameId;
+                await LoadCommentsAsync(latestFrame.FrameId);
+            }
+            else
+            {
+                _currentFrameId = null;
+                Comments = new ObservableCollection<CommentDisplayItem>();
+            }
+
+            var frames = await _patientFrameQueryService.GetFramesForWindowAsync(CurrentUser.UserId, WindowToTimeSpan(SelectedWindow));
+            UpdatePlots(frames);
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Unable to load dashboard data: {ex.Message}";
+        }
+    }
+
+    private async Task LoadCommentsAsync(int frameId)
+    {
+        var rows = await _patientFrameQueryService.GetCommentsForFrameAsync(frameId);
+        Comments = new ObservableCollection<CommentDisplayItem>(FlattenComments(rows));
+    }
+
+    private static IEnumerable<CommentDisplayItem> FlattenComments(IReadOnlyCollection<Comment> comments)
+    {
+        var roots = comments
+            .Where(c => !c.ParentCommentId.HasValue)
+            .OrderBy(c => c.CreatedAt)
+            .ToList();
+
+        var byParent = comments
+            .Where(c => c.ParentCommentId.HasValue)
+            .GroupBy(c => c.ParentCommentId!.Value)
+            .ToDictionary(g => g.Key, g => g.OrderBy(x => x.CreatedAt).ToList());
+
+        foreach (var root in roots)
+        {
+            yield return new CommentDisplayItem
+            {
+                AuthorName = root.Author?.FullName ?? "Unknown",
+                CreatedAt = root.CreatedAt,
+                Content = root.Content,
+                Level = 0
+            };
+
+            foreach (var nested in Traverse(root.CommentId, 1))
+            {
+                yield return nested;
+            }
+        }
+
+        IEnumerable<CommentDisplayItem> Traverse(int parentId, int level)
+        {
+            if (!byParent.TryGetValue(parentId, out var children))
+            {
+                yield break;
+            }
+
+            foreach (var c in children)
+            {
+                yield return new CommentDisplayItem
+                {
+                    AuthorName = c.Author?.FullName ?? "Unknown",
+                    CreatedAt = c.CreatedAt,
+                    Content = c.Content,
+                    Level = level
+                };
+
+                foreach (var nested in Traverse(c.CommentId, level + 1))
+                {
+                    yield return nested;
+                }
+            }
+        }
+    }
+
+    private static TimeSpan WindowToTimeSpan(TimeWindowOption option)
+    {
+        return option switch
+        {
+            TimeWindowOption.OneHour => TimeSpan.FromHours(1),
+            TimeWindowOption.SixHours => TimeSpan.FromHours(6),
+            TimeWindowOption.TwentyFourHours => TimeSpan.FromHours(24),
+            TimeWindowOption.SevenDays => TimeSpan.FromDays(7),
+            _ => TimeSpan.FromHours(1)
+        };
+    }
+
+    private void UpdatePlots(IReadOnlyCollection<SensorFrame> frames)
+    {
+        var ppiSeries = new LineSeries { Title = "PPI", StrokeThickness = 2 };
+        var contactSeries = new LineSeries { Title = "Contact Area", StrokeThickness = 2 };
+
+        foreach (var frame in frames)
+        {
+            var x = DateTimeAxis.ToDouble(frame.Timestamp);
+            ppiSeries.Points.Add(new DataPoint(x, frame.Ppi));
+            contactSeries.Points.Add(new DataPoint(x, frame.ContactArea));
+        }
+
+        PpiPlotModel.Series.Clear();
+        PpiPlotModel.Series.Add(ppiSeries);
+        PpiPlotModel.InvalidatePlot(true);
+
+        ContactAreaPlotModel.Series.Clear();
+        ContactAreaPlotModel.Series.Add(contactSeries);
+        ContactAreaPlotModel.InvalidatePlot(true);
+    }
+
+    private static PlotModel CreateEmptyPlotModel(string title, string yTitle)
+    {
+        var model = new PlotModel { Title = title };
+        model.Axes.Add(new DateTimeAxis
+        {
+            Position = AxisPosition.Bottom,
+            StringFormat = "HH:mm",
+            Title = "Time"
+        });
+        model.Axes.Add(new LinearAxis
+        {
+            Position = AxisPosition.Left,
+            Title = yTitle
+        });
+        return model;
+    }
+
+    private static ObservableCollection<HeatmapCell> BuildDefaultHeatmap()
+    {
+        return new ObservableCollection<HeatmapCell>(
+            Enumerable.Range(0, 1024).Select(_ => new HeatmapCell { Color = new SolidColorBrush(Color.FromRgb(0, 0, 255)) }));
+    }
+
+    private static ObservableCollection<HeatmapCell> BuildHeatmap(string frameData)
+    {
+        var values = frameData
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(token => int.TryParse(token, out var v) ? v : 1)
+            .Take(1024)
+            .ToList();
+
+        if (values.Count < 1024)
+        {
+            values.AddRange(Enumerable.Repeat(1, 1024 - values.Count));
+        }
+
+        return new ObservableCollection<HeatmapCell>(
+            values.Select(v => new HeatmapCell
+            {
+                Color = new SolidColorBrush(MapColor(v))
+            }));
+    }
+
+    private static Color MapColor(int value)
+    {
+        var clamped = Math.Clamp(value, 1, 255);
+        if (clamped <= 128)
+        {
+            var t = (clamped - 1) / 127d;
+            var r = (byte)(255 * t);
+            var g = (byte)(255 * t);
+            return Color.FromRgb(r, g, 255);
+        }
+
+        var u = (clamped - 128) / 127d;
+        var green = (byte)(255 * (1 - u));
+        return Color.FromRgb(255, green, 0);
+    }
+
+    private void Logout()
+    {
+        _alertService.AlertTriggered -= OnAlertTriggered;
+        _mainViewModel.NavigateToLogin();
+    }
+}

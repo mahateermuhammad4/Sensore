@@ -1,0 +1,105 @@
+﻿using Sensore.Data;
+using Sensore.Models;
+
+namespace Sensore.Services;
+
+public class CsvImportService
+{
+    private readonly AppDbContext _dbContext;
+    private readonly PressureAnalysisService _pressureAnalysisService;
+    private readonly AlertService _alertService;
+
+    public CsvImportService(
+        AppDbContext dbContext,
+        PressureAnalysisService pressureAnalysisService,
+        AlertService alertService)
+    {
+        _dbContext = dbContext;
+        _pressureAnalysisService = pressureAnalysisService;
+        _alertService = alertService;
+    }
+
+    public async Task<ParseResult> ImportAsync(string filePath, int userId)
+    {
+        if (!File.Exists(filePath))
+        {
+            throw new FileNotFoundException("CSV file not found.", filePath);
+        }
+
+        var result = new ParseResult();
+        var validRows = new List<string>(32);
+        var rowNumber = 0;
+        var frameIndex = 0;
+
+        await using var stream = File.OpenRead(filePath);
+        using var reader = new StreamReader(stream);
+
+        while (!reader.EndOfStream)
+        {
+            var raw = await reader.ReadLineAsync();
+            rowNumber++;
+
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                result.Errors.Add($"Row {rowNumber}: empty row skipped.");
+                continue;
+            }
+
+            var parts = raw.Split(',', StringSplitOptions.TrimEntries);
+            if (parts.Length != 32)
+            {
+                result.Errors.Add($"Row {rowNumber}: expected 32 columns but found {parts.Length}.");
+                continue;
+            }
+
+            if (parts.Any(p => !int.TryParse(p, out _)))
+            {
+                result.Errors.Add($"Row {rowNumber}: contains non-integer values.");
+                continue;
+            }
+
+            validRows.Add(raw);
+
+            if (validRows.Count != 32)
+            {
+                continue;
+            }
+
+            frameIndex++;
+            var frameArray = _pressureAnalysisService.BuildFrame(validRows);
+            var ppi = _pressureAnalysisService.CalculatePpi(frameArray);
+            var contactArea = _pressureAnalysisService.CalculateContactArea(frameArray);
+
+            var frame = new SensorFrame
+            {
+                UserId = userId,
+                Timestamp = DateTime.UtcNow.AddSeconds(frameIndex),
+                FrameData = string.Join(',', frameArray.Cast<int>()),
+                Ppi = ppi,
+                ContactArea = contactArea,
+                IsFlagged = false
+            };
+
+            _dbContext.SensorFrames.Add(frame);
+            await _alertService.EvaluateAsync(userId, frame);
+
+            result.FramesSaved++;
+            result.LastPpi = ppi;
+            result.LastContactArea = contactArea;
+            validRows.Clear();
+        }
+
+        if (rowNumber == 0)
+        {
+            throw new InvalidOperationException("The selected CSV file is empty.");
+        }
+
+        if (validRows.Count > 0)
+        {
+            result.Errors.Add($"Incomplete trailing frame discarded ({validRows.Count} rows).\n");
+        }
+
+        await _dbContext.SaveChangesAsync();
+        return result;
+    }
+}

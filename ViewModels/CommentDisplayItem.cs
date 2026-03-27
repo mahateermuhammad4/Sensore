@@ -1,0 +1,22 @@
+using System.Windows;
+
+namespace Sensore.ViewModels;
+
+public class CommentDisplayItem
+{
+    public int CommentId { get; init; }
+
+    public int FrameId { get; init; }
+
+    public string AuthorName { get; init; } = string.Empty;
+
+    public DateTime CreatedAt { get; init; }
+
+    public string Content { get; init; } = string.Empty;
+
+    public int Level { get; init; }
+
+    public double LeftIndent => Level * 16;
+
+    public Thickness ItemMargin => new(LeftIndent, 0, 0, 6);
+}

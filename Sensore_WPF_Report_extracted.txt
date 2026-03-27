@@ -1,0 +1,1756 @@
+﻿SENSORE
+Pressure Ulcer Prevention System
+Software Application Report
+────────────────────────────────────────
+Module Assessment — Software Development
+Anglia Ruskin University
+Submitted by: [Student Name 1] · [Student Name 2] · [Student Name 3]
+Student IDs: [ID 1] · [ID 2] · [ID 3]
+Date: March 2026
+Table of Contents
+Table of Contents
+2
+1. Problem Definition and Software Requirements
+4
+1.1 Case Study Overview
+4
+1.2 Current System Description
+4
+1.3 Software Requirements
+4
+Functional Requirements
+4
+Non-Functional Requirements
+5
+Nice-to-Have Requirements
+5
+1.4 Project Aims
+5
+1.5 User Stories
+5
+1.6 Project Plan
+6
+1.7 Resources
+7
+2. Software Design
+8
+2.1 Wireframes
+8
+2.1.1 Login Screen
+8
+2.1.2 Patient Dashboard
+8
+2.1.3 Clinician Dashboard
+8
+2.1.4 Admin Dashboard
+9
+2.2 Database Design
+9
+2.2.1 Entity-Relationship Overview
+9
+2.2.2 Table Definitions
+10
+2.2.3 Design Rationale
+11
+2.3 MVVM Class Structure
+11
+2.3.1 Overview
+11
+2.3.2 Models
+11
+2.3.3 ViewModels
+12
+2.3.4 Services
+12
+2.3.5 Views
+13
+3. Software Implementation Documentation
+14
+3.1 Application Architecture
+14
+3.2 User Interface Elements
+14
+3.2.1 Heatmap Canvas
+14
+3.2.2 Time-Series Charts
+14
+3.2.3 Alert Banner
+15
+3.3 Database Implementation
+15
+3.3.1 AppDbContext
+15
+3.3.2 EF Core Migrations
+15
+3.4 Backend Operations
+15
+3.4.1 CSV Import and Frame Parsing
+15
+3.4.2 Peak Pressure Index Algorithm
+15
+3.4.3 Contact Area Calculation
+16
+3.4.4 Alert Detection
+16
+3.4.5 Authentication and Role-Based Access
+16
+3.5 Component Interactions
+16
+3.5.1 CSV Import Data Flow
+16
+3.5.2 Comment Thread Flow
+17
+3.5.3 Exception Handling Strategy
+17
+4. Testing
+18
+4.1 Testing Strategy
+18
+4.2 Unit Tests
+18
+4.2.1 PressureAnalysisService Tests
+18
+4.2.2 AlertService Tests
+18
+4.2.3 CsvImportService Tests
+19
+4.2.4 AuthService Tests
+19
+4.3 Integration Tests
+19
+4.4 Manual and UI Tests
+20
+4.5 Test Coverage Summary
+20
+5. Plan of Software Maintenance
+22
+5.1 Maintenance Philosophy
+22
+5.2 Categories of Maintenance
+22
+5.3 Version Control and Branching Strategy
+22
+5.4 Bug Reporting and Resolution Process
+23
+5.5 Dependency and Framework Updates
+23
+5.6 Database Maintenance
+23
+5.7 Security Maintenance
+23
+5.8 Documentation Maintenance
+23
+5.9 Monitoring and Health Checks
+24
+References
+25
+1. Problem Definition and Software Requirements
+1.1 Case Study Overview
+Graphene Trace is a 
+MedTech
+ startup based in Chelmsford, UK, developing a product ca
+lled 
+Sensore
+ — a continuous, automated 
+pressure ulcer prevention system
+. The system uses an e-textile mat embedded with pressure sensors that generate real-time, 32×32 
+grid pressure distribution maps
+. These maps 
+are saved
+ as time-stamped CSV files and are 
+designed to be read by monitoring software that can detect dangerous pressure zones and alert caregivers before a pressure ulcer develops.
+Pressure ulcers (also known as bedsores or decubitus ulcers) are a preventable but serious patient safety concern, particularly for wheelchair users and immobile patients. Each CSV file produced by the 
+Sensore
+ hardware stores one or more 32×32 pressure fra
+mes, where each row corresponds to one row of sensors and each value represents the pressure at that sensor pixel. Values range from 
+1
+ (zero applied force) up to 255 (maximum saturation), scaling linearly. Files 
+are named and 
+organised
+ by patient user ID a
+nd date/time, providing a structured dataset that the software application must ingest, store, 
+analyse
+, and 
+visualise
+.
+1.2 Current System Description
+Before this software project, there is no dedicated tool to manage, process, or display the data generate
+d by the 
+Sensore
+ mat. Raw CSV files accumulate in a folder structure on disk, 
+organised
+ loosely by user ID and date. There is no central dashboard, no alert mechanism, no user role separation, and no reporting capability. Clinical staff would need to open 
+raw files manually and 
+read through
+ hundreds of rows of comma-separated numbers to detect any problematic pattern — a process that is simply not workable at scale. This project exists specifically to replace that manual process with an automated, role-base
+d, data-driven application.
+1.3 Software Requirements
+Functional Requirements
+FR1 — 
+Database:
+ Design and implement a structured SQLite database to store time-ordered 32×32 pressure map data per patient, along with computed metrics and associated metadata.
+FR2 — User Roles: Support three distinct login types. Patients see only their own data. 
+Clinicians can view all or selected assigned patients' data.
+ Administrators create and manage all user accounts.
+FR3 — Pressure Analysis and Alerts: 
+Analyse
+ each incom
+ing pressure frame to identify high-pressure regions. Generate on-screen alerts for the patient and flag the event in the database for clinician review.
+FR4a — Peak Pressure Index (PPI): Calculate the 
+highest pressure
+ value within any contiguous region of 
+ten or more active pixels in a frame. Regions with fewer than ten pixels 
+must be excluded
+ from the calculation.
+FR4b — Contact Area Percentage: Compute the proportion of all 1,024 pixels that exceed a defined lower threshold, expressing this as a percentag
+e of total mat coverage.
+FR5 — Time-Series Graphs: Display PPI and Contact Area as line graphs over selectable time windows — the last one hour, last six hours, last 24 hours, and last seven days.
+FR6 — Report Generation: Produce summary reports for a chos
+en patient and date range, including key metric averages, peak values, and comparisons (day-on-day and this hour versus the same hour yesterday).
+FR7 — Comment and Feedback System: Allow patients to submit timestamped comments linked to specific pressure f
+rames. Clinicians can view these comments and reply in a threaded format.
+Non-Functional Requirements
+NFR1 — Security: User passwords must be stored as salted hashes using 
+BCrypt
+. The application must never store or log plaintext credentials.
+NFR2 — Perfo
+rmance: The main dashboard must load and render 
+heatmap
+ data within three seconds for a standard 24-hour dataset.
+NFR3 — Usability: The interface must be clear and understandable to non-technical users including patients and clinical staff.
+NFR4 — Scalabil
+ity: The database schema and service layer must support growth in the number of patients and data volume without architectural redesign.
+NFR5 — Maintainability: All code must follow the MVVM pattern, 
+be clearly commented
+, and be free of redundant or unused
+ code.
+Nice-to-Have Requirements
+NTH1 — Additional Metrics: Extract further pressure analysis values beyond PPI and Contact Area, such as 
+centre
+-of-pressure shift or left/right asymmetry index.
+NTH2 — Enhanced 
+Visualisation
+: Improve the visual quality of 
+heatmaps
+ and charts using smooth 
+colour
+ gradients and animated transitions accessible to lay audiences.
+1.4 Project Aims
+The primary aim is to deliver a functional, secure, and clinically useful WPF desktop application that enables Graphene Trace to move beyond raw CSV files and operate with a proper data management and monitoring system. More specifically, the project aims 
+to:
+Give patients real-time visibility of their own pressure data and automatic alerts when prolonged high pressure 
+is detected
+.
+Allow clinicians to efficiently monitor multiple patients, review flagged pressure events, and engage with patient comments thr
+ough a threaded interface.
+Enable administrators to create, edit, and deactivate user accounts from a dedicated management interface.
+Generate structured, readable clinical reports that support informed care decisions and allow trend comparison over time.
+Build a local SQLite-backed data architecture capable of ingesting and querying large volumes of sensor CSV data reliably and efficiently.
+1.5 User Stories
+ID
+Role
+Story
+Acceptance Criteria
+US-01
+Patient
+As a patient, I want to see a live 
+heatmap
+ of my current pressure distribution so that I am aware of my posture.
+Heatmap
+ renders on dashboard within 5 seconds of new CSV data 
+being imported
+.
+US-02
+Patient
+As a patient, I want to receive an alert when dangerous pressure 
+is detected
+ so that I can adjust my position promptly.
+Alert banner appears when PPI exceeds threshold for 3 or more consecutive frames.
+US-03
+Patient
+As a patient, I want to add a comment to a specific pressure frame so that I can flag events for my clinician.
+Comment 
+is saved
+ in the database with the correct 
+FrameId
+ and timestamp.
+US-04
+Patient
+As a patient, I want to view my PPI and Contact Area graphs over different 
+time periods
+ so I can understand my trends.
+Charts update correctly when the user clicks a time period button.
+US-05
+Clinician
+As a clinician, I want to see a list of my assigned patients so I can monitor their overall status at a glance.
+Only patients assigned to this clinician appear in the patient list.
+US-06
+Clinician
+As a clinician, I want to view flagged pressure events for a patient so I can review concerning incidents.
+Flagged frames 
+are listed and sorted by date with alert type shown
+.
+US-07
+Clinician
+As a clinician, I want to reply to patient comments so I can give feedback within the same interface.
+Reply is linked to the parent comment and visible to the patient when they log in.
+US-08
+Clinician
+As a clinician, I want to generate a summary report for a patient so I can record and share their pressure history.
+Report includes PPI, Contact Area, and a day-on-day comparison for the chosen period.
+US-09
+Admin
+As an admin, I want to create new user accounts so that patients and clinicians can access the system.
+New user can log in immediately after account creation with the provided credentials.
+US-10
+Admin
+As an admin, I want to assign patients to clinicians so that access control is correctly enforced.
+Clinician can see newly assigned patient; cannot see patients assigned to others.
+1.6 Project Plan
+The project 
+is planned
+ across six weeks, divided between three team members. The table below 
+summarises
+ the main sprints, tasks, and responsibilities. A Gantt chart should be drawn and inserted below the table.
+Week
+Sprint Goal
+Tasks
+Owner
+1
+Requirements and Design
+Case study analysis, user stories, ER diagram, wireframes, project plan
+All
+2
+Database and 
+Auth
+ Layer
+SQLite schema, EF Core code-first models, login and role logic, password hashing
+Student A
+3
+CSV Import and Analysis
+CsvImportService
+, PPI and Contact Area algorithms, 
+AlertService
+Student B
+4
+Dashboard and 
+Heatmap
+WPF 
+heatmap
+ canvas, time-series charts, patient dashboard MVVM bindings
+Student C
+5
+Clinician and Admin Views
+Clinician patient list, comment thread UI, admin account management view
+Student A + B
+6
+Testing, Reports and Polish
+Unit tests, integration tests, report generation, UI refinement, documentation
+All
+[Insert Gantt 
+Chart
+ Here: A horizontal bar chart showing each task plotted week-by-week across the six-week timeline, with each team member's tasks 
+colour
+-coded.]
+1.7 Resources
+Development environment: Visual Studio 2022 Community Edition
+Language and framework: C# with .NET 8
+UI technology: Windows Presentation Foundation (WPF)
+Database: SQLite via Entity Framework Core (
+Microsoft.EntityFrameworkCore.Sqlite
+)
+Charting library: 
+OxyPlot
+ for WPF (
+OxyPlot.Wpf
+
+NuGet
+ package)
+Password hashing: BC
+rypt.Net-Next 
+NuGet
+ package
+Report generation: 
+QuestPDF
+
+NuGet
+ package
+Version control: 
+Git
+ with a private GitHub repository
+Project tracking: GitHub Projects Kanban board
+Testing: 
+xUnit
+ with 
+Moq
+Sensor data input: CSV files provided by Graphene Trace (32×32 pressure frames, 32 rows per frame)
+2. Software Design
+2.1 Wireframes
+2.1.1 Login Screen
+The login screen is the single entry point for all user roles. It displays a 
+centred
+ card layout cont
+aining the 
+Sensore
+ branding, an email address field, a password field, and a login button. There is no self-registration option — 
+all accounts are created by the Administrator
+. On successful 
+authentication
+ the application automatically navigates to the rol
+e-appropriate dashboard.
+[ WIREFRAME: Login Screen ]
+ ┌───────────────────────────────────────┐
+ │          SENSORE  [logo]              │
+ │   Pressure Ulcer Prevention System   │
+ │                                       │
+ │  Email:     [_______________________] │
+ │  Password:  [_______________________] │
+ │                                       │
+ │             [    Log In    ]          │
+ │                                       │
+
+│  Forgot
+ password? Contact your admin  
+│
+ └───────────────────────────────────────┘
+2.1.2 Patient Dashboard
+The patient dashboard is the primary view for a logged-in patient. The upper area shows an alert banner (hidden by default, shown when high pressure 
+is detected
+). The main content splits into two columns: the left column renders the live 32×32 
+heatmap
+ as a
+
+coloured
+ grid; the right column shows metric cards for current PPI and Contact Area, time-period selector buttons, and a line chart tracking PPI over the selected period. A comment box below the 
+heatmap
+ allows the patient to attach a note to the current f
+rame.
+[ WIREFRAME: Patient Dashboard ]
+ ┌────────────────────────────────────────────────────────┐
+ │ SENSORE  |  Patient: [Name]              [ Log Out ]   │
+ ├────────────────────────────────────────────────────────┤
+ │  ⚠  ALERT: High pressure detected
+ at 14:32  [Dismiss]  │
+ ├──────────────────────┬─────────────────────────────────┤
+ │  LIVE HEATMAP        │  PPI: 187    Contact Area: 34%  │
+ │  ┌────────────────┐  │                                 │
+ │  │  [32x32 
+colour
+ │  │  [ 1h ]  [ 6h ]  [24h]  [ 
+7d ] │
+ │  │   grid map ]   │  │                                 │
+ │  └────────────────┘  │  [PPI Line Chart over time]     │
+ │                      │                                 │
+ │  Comment: [        ] │  [Contact Area Line Chart]      │
+ │  [Submit Comment]    │                                 │
+ └──────────────────────┴─────────────────────────────────┘
+2.1.3 Clinician Dashboard
+The clinician dashboard opens on a 
+DataGrid
+ listing all assigned patients. Each row shows the patient's name
+, their most recent PPI reading, the number of active alerts, and the time 
+of the last data update. Clicking a row opens the Patient Detail view where the clinician can review 
+heatmaps
+, flagged events, and the comment thread for that patient. A Generate Re
+port button at the top launches a date-range picker before producing the report.
+[ WIREFRAME: Clinician Dashboard ]
+ ┌────────────────────────────────────────────────────────┐
+ │ SENSORE  |  Clinician: [Name]           [ Log Out ]    │
+ ├─────────────────
+───────────────────────────────────────┤
+ │  My Patients                    [ Generate Report ]    │
+ │  ┌──────────┬────────┬─────────┬─────────────────┐    │
+ │  │ Name     │ PPI    │ Alerts  │ Last Updated     │    │
+ │  ├──────────┼────────┼─────────┼─────────────────┤    │
+ │  │ J. Smith │  182   │ ⚠ 1     │ Today 14:31      │    │
+ │  │ A. Patel │   45   │ None    │ Today 13:58      │    │
+ │  └──────────┴────────┴─────────┴─────────────────┘    │
+ │  Click a row to
+ open the patient detail view           │
+ └────────────────────────────────────────────────────────┘
+2.1.4 Admin Dashboard
+The administrator view is purely an account management interface with no access to clinical data. It shows a table of all system u
+sers with their name, email, role, and status. An Add User button opens an inline form where the admin enters the new user's details and assigns their role. For clinicians, an additional assignment section allows the admin to link one or more patients to t
+hat clinician's account.
+[ WIREFRAME: Admin Dashboard ]
+ ┌────────────────────────────────────────────────────────┐
+ │ SENSORE Administration                 [ Log Out ]     │
+ ├────────────────────────────────────────────────────────┤
+ │  All Accounts   
+              [ + Create New User ]    │
+ │  ┌──────────────┬────────────┬────────────┬────────┐   │
+ │  │ Name         │ Email      │ Role       │ Action │   │
+ │  ├──────────────┼────────────┼────────────┼────────┤   │
+ │  │ J. Smith     │ j@test.com │ Patient    │ Edit   │   │
+ │  │ Dr. Brown    │ b@test.com │ Clinician  │ Edit   │   │
+ │  └──────────────┴────────────┴────────────┴────────┘   │
+ └────────────────────────────────────────────────────────┘
+All four wiref
+rames share a consistent top navigation bar carrying the application name, the logged-in user's identity, and a Log Out button. A plain light-grey and white 
+colour
+ scheme 
+is used
+ throughout, keeping the interface clinical and readable. 
+Navigation between p
+ages is managed by the 
+MainViewModel
+ shell without any page reload
+ — the view updates via data binding to the 
+CurrentViewModel
+ property.
+2.2 Database Design
+2.2.1 Entity-Relationship Overview
+The database 
+is implemented
+ in SQLite using Entity Framework Co
+re with code-first migrations. The schema 
+is 
+centred
+ on five primary entities — User, 
+SensorFrame
+, Alert, Comment, and Report — along with a joining table (
+ClinicianPatients
+) to manage the many-to-many relationship between clinicians and patients.
+[Insert
+ Entity-Relationship Diagram Here: Show Users, 
+SensorFrames
+, Alerts, Comments, Reports, and 
+ClinicianPatients
+ with crow's foot notation. Include all foreign key relationships and cardinalities.]
+2.2.2 Table Definitions
+Table
+Column
+Type
+Description
+Users
+UserId
+INTEGER PK
+Auto-incrementing primary key
+Email
+TEXT UNIQUE
+Login email address, enforced unique across all users
+PasswordHash
+TEXT
+BCrypt
+ hash of the user's password
+FullName
+TEXT
+Display name shown in the application
+Role
+TEXT
+'Patient', 'Clinician', or 'Admin'
+IsActive
+INTEGER
+1 = active account; 0 = deactivated by admin
+SensorFrames
+FrameId
+INTEGER PK
+Auto-incrementing primary key
+UserId
+INTEGER FK
+References 
+Users.UserId
+ (the patient)
+Timestamp
+TEXT
+ISO 8601 
+datetime
+ string of when the frame was captured
+FrameData
+TEXT
+Comma-separated string of 1,024 integer pixel values
+PPI
+REAL
+Computed Peak Pressure Index for this frame
+ContactArea
+REAL
+Computed contact area percentage for this frame
+IsFlagged
+INTEGER
+1 = frame was flagged by the alert system for review
+Alerts
+AlertId
+INTEGER PK
+Auto-incrementing primary key
+FrameId
+INTEGER FK
+References 
+SensorFrames.FrameId
+ (triggering frame)
+AlertType
+TEXT
+Alert category, e.g. '
+HighPressure
+'
+CreatedAt
+TEXT
+Datetime
+ the alert was raised
+IsAcknowledged
+INTEGER
+1 = dismissed by the patient
+Comments
+CommentId
+INTEGER PK
+Auto-incrementing primary key
+FrameId
+INTEGER FK
+References 
+SensorFrames.FrameId
+AuthorId
+INTEGER FK
+References 
+Users.UserId
+ (author of the comment)
+ParentCommentId
+INTEGER
+Null for root comments; references 
+CommentId
+ of parent for replies
+Content
+TEXT
+The comment or reply text
+CreatedAt
+TEXT
+Datetime
+ the comment was submitted
+Reports
+ReportId
+INTEGER PK
+Auto-incrementing primary key
+PatientId
+INTEGER FK
+References 
+Users.UserId
+ (the patient)
+GeneratedBy
+INTEGER FK
+References 
+Users.UserId
+ (the clinician who generated it)
+DateFrom
+TEXT
+Start date of the report period
+DateTo
+TEXT
+End date of the report period
+ReportContent
+TEXT
+Serialised
+ HTML or JSON summary of the report
+GeneratedAt
+TEXT
+Datetime
+ the report was produced
+ClinicianPatients
+ClinicianId
+INTEGER FK
+References 
+Users.UserId
+ (clinician)
+PatientId
+INTEGER FK
+References 
+Users.UserId
+ (patient). Composite PK with 
+ClinicianId
+2.2.3 Design Rationale
+Storing the raw 32×32 frame data as a comma-separated text string in the 
+FrameData
+ column keeps the schema stable regardless of future changes to sensor resolution. The computed metric columns (PPI, 
+ContactArea
+) are stored as indexed numeric fields so that
+ time-series queries for charting can run efficiently against them without needing to re-parse any raw data at query time.
+The self-referencing 
+ParentCommentId
+ foreign key in the Comments table enables a threaded reply structure without requiring a separat
+e table. The 
+IsFlagged
+ column on 
+SensorFrames
+ acts as a fast 
+boolean
+ filter for the clinician's flagged events list, avoiding a join to the Alerts table in the most common query path.
+2.3 MVVM Class Structure
+2.3.1 Overview
+The application follows the Model-View-
+ViewModel
+ (MVVM) architectural pattern, which is the standard approach for WPF applications. This pattern separates the data layer and business logic from the user interface using a 
+ViewModel
+ layer that exposes 
+bindab
+le
+ properties and commands. No business logic 
+is placed
+ in any XAML code-behind file.
+2.3.2 Models
+Model Class
+Responsibility
+User
+Represents a system account. Properties: 
+UserId
+, Email, 
+PasswordHash
+, 
+FullName
+, Role (
+enum
+), 
+IsActive
+. Navigation collections to 
+SensorFrames
+ and Comments.
+SensorFrame
+Represents one 32×32 pressure snapshot. Properties: 
+FrameId
+, 
+UserId
+ (FK), Timestamp, 
+FrameData
+ (comma-separated string), PPI, 
+ContactArea
+, 
+IsFlagged
+. Navigation to Alerts and Comments.
+Alert
+Represents a triggered high-pressure event. Properties: 
+AlertId
+, 
+FrameId
+ (FK), 
+AlertType
+, 
+CreatedAt
+, 
+IsAcknowledged
+. Navigation to the triggering 
+SensorFrame
+.
+Comment
+Represents a patient or clinician comment. Properties: 
+CommentId
+, 
+FrameId
+ (FK), 
+AuthorId
+ (FK), 
+ParentCommentId
+ (
+nullable
+ FK to self), Content, 
+CreatedAt
+.
+Report
+Represents a generated clinical summary. Properties: 
+ReportId
+, 
+PatientId
+ (FK), 
+GeneratedBy
+ (FK), 
+DateFrom
+, 
+DateTo
+, 
+ReportContent
+, 
+GeneratedAt
+.
+2.3.3 
+ViewModels
+ViewModel
+ Class
+Responsibility
+LoginViewModel
+Exposes Email, Password, and 
+LoginCommand
+. On execution calls 
+AuthService.Authenticate
+; on success sets the authenticated user on 
+MainViewModel
+ and triggers navigation to the appropriate dashboard.
+PatientDashboardViewModel
+Exposes 
+HeatmapCells
+ (
+ObservableCollection
+), PPI, 
+ContactArea
+, 
+IsAlertVisible
+, 
+AlertMessage
+, time-period buttons, and chart data. Commands: 
+SelectTimePeriodCommand
+, 
+SubmitCommentCommand
+, 
+AcknowledgeAlertCommand
+. Handles 
+AlertTriggered
+ events from 
+AlertServ
+ice
+.
+ClinicianDashboardViewModel
+Exposes 
+PatientList
+ (
+ObservableCollection
+<
+PatientSummary
+>) and 
+SelectedPatient
+. 
+SelectPatientCommand
+ navigates to 
+PatientDetailViewModel
+ for the chosen patient.
+PatientDetailViewModel
+Used by clinicians to inspect one patient's data. Exposes read-only 
+heatmap
+, 
+FlaggedFrames
+ list, and comment thread. Commands: 
+GenerateReportCommand
+, 
+ReplyToCommentCommand
+.
+AdminDashboardViewModel
+Exposes 
+UserList
+ (
+ObservableCollection
+<User>) and form fields for new user creation. Commands: 
+CreateUserCommand
+, 
+DeactivateUserCommand
+, 
+AssignPatientCommand
+.
+MainViewModel
+Top-level shell. Holds 
+CurrentViewModel
+ (bound to the main 
+ContentControl
+). Owns the logged-in User object. Navigation 
+is performed
+ by reassigning 
+CurrentViewModel
+.
+2.3.4 Services
+Service Class
+Responsibility
+AppDbContext
+EF Core 
+DbContext
+. Exposes 
+DbSet
+<T> for each entity. Configures relationships via Fluent API in 
+OnModelCreating
+, including the 
+ClinicianPatients
+ composite key and Comment self-reference.
+AuthService
+Authenticate(
+email, password): queries the database for the user, verifies the 
+bcrypt
+ hash, checks 
+IsActive
+, and returns the User entity or null.
+CsvImportService
+ImportAsync
+(
+filePath
+, 
+userId
+): reads the CSV file line by line, groups every 32 lines into a 
+SensorFrame
+, calls 
+PressureAnalysisService
+ for each frame, then saves all frames in a single 
+SaveChangesAsync
+ call.
+PressureAnalysisService
+CalculatePPI
+(
+int
+[,] frame): BFS flood-fill to find all contiguous regions above the lower threshold; excludes regions of fewer than 10 pixels; returns the maximum pixel value from qualifying regions. 
+CalculateContactArea
+(
+int
+[,] frame): counts pixels above 
+threshold, divides by 1,024, returns percentage.
+AlertService
+EvaluateAsync
+(
+userId
+, 
+ppi
+): tracks consecutive high-PPI frame count per user. On reaching 3, creates an Alert entity, sets 
+IsFlagged
+ on the frame, and raises the 
+AlertTriggered
+ event.
+ReportService
+Generate(
+patientId
+, from, to): queries 
+SensorFrame
+ data for the given period, computes average and peak metrics, builds a day-on-day comparison, and returns a formatted report string.
+2.3.5 Views
+Each 
+ViewModel
+ has a corresponding XAML View file. The Views contain no logic — all interaction 
+is handled
+ through 
+ICommand
+ bindings, and all displayed values are bound to 
+ViewModel
+ properties using standard WPF {Binding} syntax. 
+DataTemplates
+ in a shared 
+ResourceDictionary
+ map each 
+ViewModel
+ type to its View, and the 
+MainWindow.xaml
+ hosts a single 
+ContentControl
+ bound to 
+MainViewModel.CurrentViewModel
+. Switching screens requires only reassigning 
+CurrentViewModel
+ in the 
+ViewModel
+ layer.
+[Insert MVVM Class 
+Diagram Here: UML class diagram showing Views, 
+ViewModels
+, Services, Models, and 
+AppDbContext
+ with dependency arrows and key property/method names labelled.]
+3. Software Implementation Documentation
+3.1 Application Architecture
+The application is a WPF desktop program built on .NET 8, following the MVVM pattern. The solution 
+is divided
+ into four logical layers:
+Data Layer: 
+AppDbContext
+ with EF Core (SQLite) manages all database reads and writes. No raw SQL 
+is written
+; all schema 
+changes go through EF Core migrations.
+Service Layer: Business logic lives entirely in service classes. These classes have no knowledge of WPF or any UI concept — they accept plain .NET types and return results that the 
+ViewModel
+ can consume.
+ViewModel
+ Layer: 
+ViewModels
+ expose 
+ObservableCollection
+<T> for list data and 
+ICommand
+ objects for actions. When a service returns data, the 
+ViewModel
+ updates its properties, and WPF's data binding engine propagates the changes to the View automatically.
+Vi
+ew Layer: XAML files define layout, styling, and data bindings only. The only code permitted in a code-behind file is the 
+DataContext
+ assignment in 
+MainWindow
+.
+Dependencies 
+are injected
+ via constructors. 
+App.xaml.cs
+ creates all service instances at startup
+ and passes them into 
+MainViewModel
+. Child 
+ViewModels
+ receive only the services they actually need, keeping coupling low.
+3.2 User Interface Elements
+3.2.1 
+Heatmap
+ Canvas
+The 32×32 
+heatmap
+
+is rendered
+ using a WPF 
+UniformGrid
+ containing 1,024 Rectangle ele
+ments. Each rectangle's Fill property is bound to a 
+HeatmapCell.Colour
+ property in an 
+ObservableCollection
+<
+HeatmapCell
+> on the 
+ViewModel
+. The 
+colour
+ is computed by mapping each pixel value (1–255) through a linear interpolation: values near 1 map to a cool
+
+colour
+ (deep blue-green) and values near 255 map to a hot 
+colour
+ (bright red). When the 
+ViewModel
+ updates the collection, WPF's binding engine redraws the affected rectangles automatically. No custom drawing code or 
+Canvas.DrawingContext
+ is required.
+[Ins
+ert Screenshot Here: The patient dashboard showing the 32×32 
+heatmap
+ with 
+colour
+ gradient ranging from cool tones for low pressure to warm red for high pressure. The PPI and Contact Area metric cards should be visible to the right.]
+3.2.2 Time-Series Char
+ts
+Charts 
+are rendered
+ using 
+OxyPlot
+ for WPF. A 
+PlotModel
+
+is defined
+ as a property on the 
+ViewModel
+ and contains one or two 
+LineSeries
+ objects. Data points 
+are added
+ to the series from 
+SensorFrame
+ records queried for the selected time window. When the user
+ clicks a time-period button, the 
+ViewModel
+ runs the appropriate database query via 
+AppDbContext
+, clears the existing series data points, adds the new ones, and calls 
+InvalidatePlot
+() on the model to trigger a redraw. 
+OxyPlot
+ handles axis scaling automatic
+ally.
+[Insert Screenshot Here: The 
+OxyPlot
+ line chart showing PPI values
+ over a 24-hour period, with time on the x-axis, pressure index on the y-axis, and a clearly labelled data line.]
+3.2.3 Alert Banner
+The alert banner is a Border element at the top of
+ the patient dashboard. Its Visibility property is bound to the 
+ViewModel's
+
+IsAlertVisible
+
+boolean
+ using a 
+BooleanToVisibilityConverter
+ defined in the application resources. When 
+AlertService
+ raises the 
+AlertTriggered
+ event, 
+PatientDashboardViewModel
+ sets 
+IsAlertVisible
+ = true and fills 
+AlertMessage
+ with a readable description including the timestamp of the event. The 
+AcknowledgeAlertCommand
+ clears the banner and writes 
+IsAcknowledged
+ = true to the Alert record in the database.
+3.3 Database Implementation
+3.3.1 
+AppDbContext
+AppDbContext
+ inherits from 
+DbContext
+ and defines one 
+DbSet
+<T> per entity table. The 
+OnModelCreating
+ override configures the composite primary key on 
+ClinicianPatients
+, the self-referencing foreign key on Comment (
+ParentCommentId
+ to 
+Comme
+ntId
+), and cascade delete rules to prevent orphaned records when a user account is removed. The connection string points to a local 
+sensore.db
+ SQLite file stored in the application's writable data directory.
+[Insert Code Snippet Here: The 
+AppDbContext
+ clas
+s showing the six 
+DbSet
+ declarations and the 
+OnModelCreating
+ method with the composite key and self-reference FK configuration.]
+3.3.2 EF Core Migrations
+The initial migration creates all tables with the correct columns, data types, and foreign key constr
+aints. Every subsequent schema change introduces a new, uniquely dated migration. This preserves a full history of schema evolution and means any developer can recreate the local database cleanly by running the EF CLI update command. No migration file 
+is e
+ver manually edited
+ after it has been applied.
+3.4 Backend Operations
+3.4.1 CSV Import and Frame Parsing
+CsvImportService.ImportAsync
+ reads the file line by line. Every 32 lines form one 
+SensorFrame
+. 
+Each line is split by commas
+ and each token is parsed a
+s an integer. If a parse fails, that row 
+is skipped
+, an error entry is added to a running 
+ParseErrors
+ list, and processing continues. Once 32 valid rows 
+have been assembled
+, a 
+SensorFrame
+ entity is created. 
+PressureAnalysisService.CalculatePPI
+ and 
+Calculat
+eContactArea
+
+are called
+ on the resulting 32×32 integer array, and the results are stored on the entity's PPI and 
+ContactArea
+ properties before it is handed to 
+AppDbContext
+. 
+AlertService.EvaluateAsync
+
+is then called
+ with the frame's PPI. After all frames 
+ha
+ve been processed
+, 
+SaveChangesAsync
+ is invoked once to commit the entire batch to the database in a single transaction.
+[Insert Code Snippet Here: The 
+CsvImportService.ImportAsync
+ method body showing the while loop, 32-row frame assembly, error handling, 
+PressureAnalysisService
+ calls, and the single 
+SaveChangesAsync
+ at the end.]
+3.4.2 Peak Pressure Index Algorithm
+The PPI 
+algorithm uses a breadth-first search (BFS) flood-fill on the 32×32 pixel array. A 
+boolean
+
+visited[
+][] array is 
+initialised
+ to track which pixels have already been processed. For each unvisited pixel whose value exceeds the lower threshold (default: 50), a
+ BFS queue is seeded with that pixel. The BFS explores all four-connected 
+neighbours
+ (up, down, left, 
+right
+) above the threshold, recording the count of pixels in the region and the maximum value found. After the BFS completes, if the region contains at le
+ast ten pixels, its maximum value 
+is registered
+ as a candidate for PPI. Regions of fewer than ten pixels 
+are discarded
+. When all pixels 
+have been visited
+, the highest registered candidate value is returned as PPI. If no qualifying region 
+exists
+ the method 
+returns zero.
+[Insert Code Snippet Here: 
+PressureAnalysisService.CalculatePPI
+ showing the visited array 
+initialisation
+, the outer scan loop, the BFS inner loop, the 10-pixel minimum check, and the candidate max tracking.]
+3.4.3 Contact Area Calculation
+Co
+ntact Area 
+is computed
+ by iterating all 1,024 pixels and counting those whose value exceeds the lower threshold. The count 
+is then divided by 1,024.0 and multiplied by 100 to produce a percentage
+. This 
+is a simple linear scan that
+ runs in constant time rel
+ative to the fixed grid size and requires no separate data structure.
+3.4.4 Alert Detection
+AlertService
+ maintains an in-memory Dictionary<
+int
+, 
+int
+> keyed by 
+UserId
+ that tracks the current consecutive high-PPI frame count for each patient. Each time a new
+ frame is imported, 
+EvaluateAsync
+
+is called
+ with the patient's 
+UserId
+ and the frame's computed PPI. If PPI exceeds the 
+alertThresholdHigh
+ (default: 200), the counter increments; if it falls below the threshold, the counter resets to zero. When the counter 
+reaches three, an Alert entity is created with 
+AlertType
+ = 
+HighPressure
+, 
+IsFlagged
+ is set to true on the most recent triggering 
+SensorFrame
+, and the 
+AlertTriggered
+ event is raised. The 
+ViewModel
+ subscribes to this event on the service and responds by setti
+ng 
+IsAlertVisible
+ = true.
+3.4.5 Authentication and Role-Based Access
+AuthService.Authenticate
+ queries the Users table for a record matching the submitted email. If found and 
+IsActive
+ is true, 
+BCrypt.Net.BCrypt.Verify
+ is called to compare the submitted plaintext password with the stored hash. On success, the full User entity
+
+is returned
+ (including the Role property). 
+MainViewModel
+ uses the Role value to instantiate the correct dashboard 
+ViewModel
+ (
+PatientDashboardViewModel
+, 
+ClinicianDashboardViewModel
+, or 
+AdminDashboardViewModel
+) and assigns it to 
+CurrentViewModel
+. Data acces
+s restrictions 
+are enforced
+ at the service layer: 
+ClinicianDashboardViewModel
+ passes the clinician's 
+UserId
+ into every query, and the repository method filters results through a join on 
+ClinicianPatients
+, ensuring a clinician can never retrieve data for pa
+tients not assigned to them.
+3.5 Component Interactions
+3.5.1 CSV Import Data Flow
+The clinician or patient selects a CSV file using an 
+OpenFileDialog
+ in the WPF View.
+The 
+ViewModel
+ calls 
+CsvImportService.ImportAsync
+ with the file path and the patient's 
+U
+serId
+.
+CsvImportService
+ reads the file, 
+groups
+ rows into 32x32 frames, and calls 
+PressureAnalysisService
+ for each frame.
+AlertService.EvaluateAsync
+
+is called
+ per frame; if three consecutive high-PPI frames are detected, an Alert entity is created and 
+IsFla
+gged
+ is set.
+SaveChangesAsync
+ commits all 
+SensorFrame
+ and Alert entities to the database in one batch.
+CsvImportService
+ returns a 
+ParseResult
+ containing the number of frames saved and a list of any row-level errors.
+The 
+ViewModel
+ displays a success or warn
+ing message and refreshes the 
+heatmap
+ and chart data from the database.
+3.5.2 Comment Thread Flow
+Patient types a note in the comment box and clicks Submit.
+SubmitCommentCommand
+ executes in 
+PatientDashboardViewModel
+.
+A Comment entity is created with the current 
+FrameId
+, the patient's 
+UserId
+ as 
+AuthorId
+, 
+ParentCommentId
+ = null, and the comment text.
+The entity 
+is saved
+ to the database via 
+AppDbContext.SaveChangesAsync
+.
+The 
+ViewModel
+ refreshes its Comments collection by 
+requerying
+ the database for all comments linked to that frame.
+When a clinician opens the patient detail view, 
+PatientDetailViewModel
+ loads all comments for the patient, grouping child comments by 
+ParentCommentId
+ to build a display tree.
+The clinician type
+s a reply and clicks Reply; 
+ReplyToCommentCommand
+ saves a new Comment with 
+ParentCommentId
+ set to the selected root comment's 
+CommentId
+.
+3.5.3 Exception Handling Strategy
+All service methods 
+are wrapped
+ in try-catch blocks. EF Core exceptions (such as 
+SQL
+iteException
+ or 
+DbUpdateException
+) are caught, logged to a flat log file via a lightweight file logger, and 
+rethrown
+ as an 
+ApplicationException
+ with a user-friendly message. 
+ViewModels
+ catch these at the command execution level and set an 
+ErrorMessage
+ prop
+erty bound to a status bar at the bottom of each view. CSV parsing errors are returned as part of the 
+ParseResult
+ object rather than thrown as exceptions, so the user sees a clear summary of skipped rows without the entire import 
+being abandoned
+. This appr
+oach means the application never crashes silently, and users always receive meaningful feedback when something goes wrong.
+4. Testing
+4.1 Testing Strategy
+Testing 
+is structured
+ at three levels. Unit tests cover individual service methods and algorithm i
+mplementations in complete isolation, with mock dependencies where needed. Integration tests verify that the 
+ViewModel
+-to-database pipeline behaves correctly end to end, using an in-memory SQLite instance to avoid side effects on real data. Manual and UI t
+ests exercise the full application from the user's perspective, covering all three roles.
+The testing framework is 
+xUnit
+, with 
+Moq
+ used for creating test doubles. Each test method follows the Arrange-Act-Assert structure. Test class names reflect the compo
+nent under test, and method names follow the convention 
+MethodName_Scenario_ExpectedOutcome
+ for readability.
+4.2 Unit Tests
+4.2.1 
+PressureAnalysisService
+ Tests
+Test ID
+Test Name
+Scenario
+Expected Result
+UT-01
+PPI_ReturnsMaxInLargeRegion
+Frame with a 15-pixel region peaking at 220; no other region >= 10 pixels
+Returns 220
+UT-02
+PPI_IgnoresSmallRegions
+Frame with a 5-pixel region at 240 and a 12-pixel region at 180
+Returns 180 (5-pixel region excluded)
+UT-03
+PPI_AllLowPressure
+All pixel values = 1
+Returns 0 (no qualifying region exists)
+UT-04
+PPI_BoundaryOfTenPixels
+One contiguous region of exactly 10 pixels at value 150
+Returns 150 (boundary is inclusive)
+UT-05
+ContactArea_CorrectPercentage
+256 pixels above threshold in 1,024-pixel frame
+Returns 25.0%
+UT-06
+ContactArea_ZeroCoverage
+All pixels at value 1
+Returns 0.0%
+UT-07
+ContactArea_FullCoverage
+All pixels at value 255
+Returns 100.0%
+4.2.2 
+AlertService
+ Tests
+Test ID
+Test Name
+Scenario
+Expected Result
+UT-08
+Alert_TriggersAfterThreeFrames
+3 consecutive frames with PPI > 200
+Alert entity created; 
+IsFlagged
+ = true on the triggering frame
+UT-09
+Alert_NoAlertAfterTwoFrames
+2 consecutive high frames then one below threshold
+No alert created
+UT-10
+Alert_CounterResetsOnLowFrame
+3 high, 1 low, 3 high sequence
+Only the second group of 3 triggers an alert
+UT-11
+Alert_EventRaisedOnce
+Exactly 3 consecutive high frames
+AlertTriggered
+ event raised exactly once
+4.2.3 
+CsvImportService
+ Tests
+Test ID
+Test Name
+Scenario
+Expected Result
+UT-12
+ParseCsv_ValidFile
+Well-formed CSV with 3 complete 32x32 frames
+3 
+SensorFrame
+ objects returned
+UT-13
+ParseCsv_MalformedRow
+CSV with a non-integer value in row 5
+Row skipped; error logged; remaining frames returned
+UT-14
+ParseCsv_EmptyFile
+Zero-byte file submitted
+Exception thrown with descriptive message
+UT-15
+ParseCsv_IncompleteLastFrame
+CSV ends mid-frame (only 20 rows of final frame)
+Partial frame discarded; complete frames returned
+4.2.4 
+AuthService
+ Tests
+Test ID
+Test Name
+Scenario
+Expected Result
+UT-16
+Authenticate_ValidCredentials
+Correct email and matching password
+Returns matching User entity
+UT-17
+Authenticate_WrongPassword
+Correct email, wrong password
+Returns null
+UT-18
+Authenticate_InactiveUser
+Correct credentials but 
+IsActive
+ = 0
+Returns null
+UT-19
+Hash_DifferentEachCall
+Same password hashed twice
+Two different hash strings produced due to salt 
+randomisation
+4.3 Integration Tests
+Integration tests use an in-memory SQLite database (
+Microsoft.EntityFrameworkCore.InMemory
+) configured in a fresh 
+AppDbContext
+ for each test. Each test class seeds the database with the minimum data required for the scenario, ensuring full test isolation.
+Test ID
+Test Name
+Scenario
+Expected Result
+IT-01
+Login_ValidCredentials
+Valid credentials passed to 
+AuthService
+ with real in-memory DB
+User entity returned with correct Role value
+IT-02
+Login_InvalidCredentials
+Wrong password submitted
+Null returned
+IT-03
+CsvImport_FramesPersisted
+ImportAsync
+ called with a valid test CSV
+Correct number of 
+SensorFrame
+ rows in DB
+IT-04
+CommentSaved_WithCorrectIds
+Patient submits comment for frame #7
+Comment has 
+FrameId
+ = 7 and 
+AuthorId
+ = patient 
+UserId
+IT-05
+ClinicianReply_ParentIdSet
+Clinician replies to 
+CommentId
+ = 3
+New comment has 
+ParentCommentId
+ = 3
+IT-06
+ClinicianSeesOnlyAssignedPatients
+Query patient list for clinician with one assigned patient
+Only the assigned patient is in the returned list
+IT-07
+AlertPersisted_AfterThreeHighFrames
+Three consecutive high-PPI frames imported
+Alert entity in DB; frame 
+IsFlagged
+ = true
+IT-08
+ReportContainsMetrics
+ReportService.Generate
+ called for 24-hour window
+Returned string contains PPI and 
+ContactArea
+ summary values
+4.4 Manual and UI Tests
+Test ID
+Scenario
+Steps
+Expected Result
+MT-01
+Heatmap
+ renders on login
+Log in as patient; observe the dashboard
+32x32 
+coloured
+ grid is visible; 
+colours
+ match latest frame pressure values
+MT-02
+Time period selector updates chart
+Click '24h' on patient dashboard
+Chart x-axis extends to 24 hours; additional historical data points appear
+MT-03
+Alert banner shows on high pressure
+Import a CSV with 3+ consecutive high-PPI frames for the test patient
+Alert banner appears at the top of the dashboard with the correct timestamp
+MT-04
+Admin creates patient account
+Log in as admin; fill in create-user form with role = Patient; click Create
+New user appears in account list; new user can log in with provided credentials
+MT-05
+Clinician sees only assigned patients
+Log in as clinician who is assigned to one patient
+Only the one assigned patient is shown; other patients are not visible
+MT-06
+Comment reply visible to patient
+Clinician replies to comment #1; patient logs in
+Reply is visible below the original comment in the thread view
+MT-07
+Report export
+Clinician generates report; clicks Export
+Report file saved with correct patient name and date range in the filename and content
+4.5 Test Coverage Summary
+All critical service methods — 
+PressureAnalysisService
+, 
+AlertService
+, 
+CsvImportService
+, and 
+AuthService
+ — are covered by unit tests with dedicated scenarios for happy paths, boundary conditions, and error cases. Integration tests verify the complete data p
+ipeline from CSV import through database persistence, role-based access control, and report generation. Manual tests cover the full end-to-end user journeys for all three roles. Edge cases including empty input files, malformed rows, the exact ten-pixel re
+gion boundary, inactive accounts, and unassigned clinician access are all explicitly tested.
+[Insert Screenshot Here: 
+xUnit
+ Test Explorer window showing all test methods passing, with the test names and pass icons visible.]
+5. Plan of Software Maintenanc
+e
+5.1 Maintenance Philosophy
+The 
+Sensore
+ application sits in a safety-adjacent clinical context. Any defect that produces incorrect PPI values, silently fails to raise an alert, or prevents a clinician from accessing a patient's data could have real conse
+quences for patient care. The maintenance plan therefore 
+prioritises
+ rapid defect response, transparent version control, and structured change management. The approach follows the framework defined in ISO/IEC 14764, which 
+categorises
+ maintenance activities
+ as corrective, adaptive, perfective, or preventive.
+5.2 Categories of Maintenance
+Type
+Description
+Example Activities
+Corrective
+Fixing defects discovered after deployment.
+Correcting a PPI calculation error; fixing a login navigation bug; resolving a crash when a CSV file uses Windows CRLF line endings.
+Adaptive
+Updating the system for environmental changes.
+Upgrading to a newer .NET LTS version; updating EF Core; adapting the CSV parser if Graphene Trace releases new hardware with a different file format.
+Perfective
+Enhancing functionality based on user feedback.
+Adding the nice-to-have additional pressure metrics (NTH1); improving 
+heatmap
+
+colour
+ gradients (NTH2)
+;
+ adding an Excel export option for reports.
+Preventive
+Proactive work to prevent future failures.
+Refactoring the CSV parser for whitespace resilience; adding a 
+database connection retry policy
+; introducing a startup health check that validates the schema version.
+5.3 Version Control and Branching Strategy
+All source code 
+is kept
+ in a private GitHub repository using 
+Git
+ Flow. This model provides clear separation between production-ready code and work in progress:
+main
+ — contains only production-ready, fully tested releases. All merges require a pull request 
+with at least one peer review.
+develop
+ — the integration branch. All feature and fix branches merge here first and must pass automated tests before merging.
+feature
+/[name] — one branch per user story or enhancement, branched from develop.
+hotfix
+/[name] — c
+ritical bug fixes branched from main; merged back into both main and develop on completion.
+All tagged releases use semantic versioning (MAJOR.MINOR.PATCH). EF Core migration files are committed alongside the code change that requires them, so any develope
+r can bring their local database up to date by running the EF CLI update command.
+5.4 Bug Reporting and Resolution Process
+A bug 
+is reported
+ via a GitHub Issue (development team) or a feedback form within the application (clinicians and patients).
+The iss
+ue 
+is triaged within 24 hours and assigned a severity
+: Critical, High, Medium, or Low.
+Critical (data corruption or system unavailable) addressed within one working day. High within three working days. Medium within two weeks. Low in the next scheduled sprint.
+A fix 
+is developed on a hotfix or feature branch, peer-reviewed, and merged
+.
+A reg
+ression test 
+is added
+ for the specific defect before the issue is closed, to prevent recurrence.
+5.5 Dependency and Framework Updates
+A monthly scheduled review will check all 
+NuGet
+ packages for known security vulnerabilities. The .NET SDK 
+will be updated
+ to the latest Long-Term Support release within three months of its official publication. Third-party packages (
+OxyPlot
+, BCrypt.Net-Next, EF Core, 
+QuestPDF
+) are pinned to specific version numbers and updated only after running the full test suite. Any upda
+te that includes a breaking API change requires a corresponding code migration and a changelog entry.
+5.6 Database Maintenance
+All schema changes 
+are made
+ exclusively through EF Core migrations. No manual SQL edits against the database file 
+are permitted
+.
+The SQLite database file 
+is backed
+ up daily by a scheduled copy to a designated backup folder. For future network deployment, automated remote backup would replace this.
+SensorFrame
+ records older than two years 
+will be moved
+ to a cold-storage archive tabl
+e to maintain query performance as the dataset grows.
+Database integrity is verified monthly using the SQLite PRAGMA 
+integrity_check
+ command as part of a maintenance script.
+5.7 Security Maintenance
+The 
+BCrypt
+ work factor 
+is reviewed
+ annually. If the fact
+or 
+is increased
+ to counter hardware advances, users are prompted to re-authenticate at their next login, which rehashes their password with the new factor.
+Dependency vulnerability scans 
+are run
+ on every commit via a GitHub Actions workflow. A critical vul
+nerability in any dependency triggers an immediate adaptive maintenance task.
+If the application 
+is ever extended
+ to a networked deployment, SSL/TLS certificate renewal must be automated and monitored as part of the deployment pipeline.
+5.8 Documentation Maintenance
+Every pull request must include updated inline comments where the change affects non-obvious logic. The GitHub Wiki contains user guides for each role and a developer setup guide; these 
+are reviewed and updated after every sig
+nificant UI or feature change
+. XML documentation comments on all public service methods are kept current and would power a generated API reference document if the application 
+is
+ extended with a REST API layer.
+5.9 Monitoring and Health Checks
+On every app
+lication startup, a health-check routine runs before the login screen 
+is shown
+. It verifies that the SQLite database file is accessible and readable, that the EF Core schema version matches the expected migration, and that the application data directory ha
+s write permissions. If any check fails, a clear error dialog is shown with a suggested resolution, rather than allowing the application to reach an inconsistent state silently. In a future production deployment, an uptime monitoring service 
+would be confi
+gured
+ to alert the team if the application becomes unavailable.
+The maintenance plan described in this section 
+is designed
+ to ensure that the 
+Sensore
+ application remains reliable, secure, and clinically useful beyond its initial release. The combination o
+f structured branching, semantic versioning, automated testing, regular dependency reviews, and proactive health monitoring means that future developers and maintainers can work on the codebase with confidence and continue to meet the quality standards est
+ablished during the initial development phase.
+References
+Microsoft Corporation (2024) Entity Framework Core documentation [Online]. Available at: https://learn.microsoft.com/en-us/ef/core/ (Accessed: March 2026).
+Microsoft Corporation (2024) Windows Presentation Foundation documentation [Online]. Available at: https://learn.microsoft.com/en-us/dotnet/desktop/wpf/ (Accessed: March 2026).
+OxyPlot
+ Contributors (2023) 
+OxyPlot
+: a cross-platform plotting library for .NET
+ [Online]. Available at: https://oxyplot.github.io/ (Accessed: March 2026).
+ISO/IEC 14764:2006 (2006) Software Engineering — Software Life Cycle Processes — Maintenance. Geneva: International 
+Organisation
+ for 
+Standardisation
+.
+Beck, K. (2003) Test-Driven De
+velopment: By Example. Boston, MA: Addison-Wesley.
+Smith, J. (2021) WPF MVVM in Practice. 
+2nd
+
+edn
+. Birmingham: 
+Packt
+ Publishing. [Referenced for 
+ViewModel
+ navigation and data binding patterns.]

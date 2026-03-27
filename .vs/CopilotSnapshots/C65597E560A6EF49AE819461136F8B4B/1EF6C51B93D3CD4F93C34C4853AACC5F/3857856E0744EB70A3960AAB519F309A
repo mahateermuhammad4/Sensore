@@ -1,0 +1,48 @@
+﻿using System.Windows;
+using Microsoft.EntityFrameworkCore;
+using Sensore.Data;
+using Sensore.Services;
+using Sensore.ViewModels;
+
+namespace Sensore
+{
+    /// <summary>
+    /// Interaction logic for App.xaml
+    /// </summary>
+    public partial class App : Application
+    {
+        protected override void OnStartup(StartupEventArgs e)
+        {
+            base.OnStartup(e);
+
+            var connectionString =
+                Environment.GetEnvironmentVariable("SENSORE_CONNECTION")
+                ?? "Server=localhost;Port=3306;Database=sensore_db;User=sensore_user;Password=ChangeMe!123;";
+
+            var options = new DbContextOptionsBuilder<AppDbContext>()
+                .UseMySql(connectionString, ServerVersion.AutoDetect(connectionString))
+                .Options;
+
+            var dbContext = new AppDbContext(options);
+            try
+            {
+                dbContext.Database.Migrate();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    $"Database connection or migration failed.\n{ex.Message}\n\nSet SENSORE_CONNECTION and restart.",
+                    "Sensore Startup",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+            }
+
+            var authService = new AuthService(dbContext);
+            var mainViewModel = new MainViewModel(authService);
+
+            var window = new MainWindow(mainViewModel);
+            window.Show();
+        }
+    }
+
+}

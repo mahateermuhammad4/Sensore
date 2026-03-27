@@ -1,0 +1,148 @@
+﻿using System.Windows;
+using System.Windows.Input;
+using Microsoft.Win32;
+using Sensore.Infrastructure;
+using Sensore.Models;
+using Sensore.Services;
+
+namespace Sensore.ViewModels;
+
+public class PatientDashboardViewModel : ViewModelBase
+{
+    private readonly MainViewModel _mainViewModel;
+    private readonly CsvImportService _csvImportService;
+    private readonly AlertService _alertService;
+
+    private bool _isAlertVisible;
+    private string _alertMessage = string.Empty;
+    private string _statusMessage = string.Empty;
+    private double _ppi;
+    private double _contactArea;
+
+    public PatientDashboardViewModel(
+        MainViewModel mainViewModel,
+        User currentUser,
+        CsvImportService csvImportService,
+        AlertService alertService)
+    {
+        _mainViewModel = mainViewModel;
+        _csvImportService = csvImportService;
+        _alertService = alertService;
+        CurrentUser = currentUser;
+
+        _alertService.AlertTriggered += OnAlertTriggered;
+
+        ImportCsvCommand = new RelayCommand(async _ => await ImportCsvAsync());
+        AcknowledgeAlertCommand = new RelayCommand(async _ => await AcknowledgeAlertAsync(), _ => IsAlertVisible);
+        LogoutCommand = new RelayCommand(_ => _mainViewModel.NavigateToLogin());
+    }
+
+    public User CurrentUser { get; }
+
+    public bool IsAlertVisible
+    {
+        get => _isAlertVisible;
+        set
+        {
+            _isAlertVisible = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public string AlertMessage
+    {
+        get => _alertMessage;
+        set
+        {
+            _alertMessage = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public string StatusMessage
+    {
+        get => _statusMessage;
+        set
+        {
+            _statusMessage = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public double Ppi
+    {
+        get => _ppi;
+        set
+        {
+            _ppi = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public double ContactArea
+    {
+        get => _contactArea;
+        set
+        {
+            _contactArea = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public ICommand ImportCsvCommand { get; }
+
+    public ICommand AcknowledgeAlertCommand { get; }
+
+    public ICommand LogoutCommand { get; }
+
+    private async Task ImportCsvAsync()
+    {
+        var picker = new OpenFileDialog
+        {
+            Filter = "CSV files (*.csv)|*.csv|All files (*.*)|*.*",
+            CheckFileExists = true,
+            Multiselect = false
+        };
+
+        if (picker.ShowDialog() != true)
+        {
+            return;
+        }
+
+        try
+        {
+            var result = await _csvImportService.ImportAsync(picker.FileName, CurrentUser.UserId);
+            Ppi = result.LastPpi;
+            ContactArea = result.LastContactArea;
+
+            StatusMessage = result.Errors.Count == 0
+                ? $"Imported {result.FramesSaved} frame(s) successfully."
+                : $"Imported {result.FramesSaved} frame(s) with {result.Errors.Count} warning(s).";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Import failed: {ex.Message}";
+        }
+    }
+
+    private async Task AcknowledgeAlertAsync()
+    {
+        await _alertService.AcknowledgeLatestAsync(CurrentUser.UserId);
+        IsAlertVisible = false;
+        AlertMessage = string.Empty;
+    }
+
+    private void OnAlertTriggered(object? sender, AlertTriggeredEventArgs e)
+    {
+        if (e.UserId != CurrentUser.UserId)
+        {
+            return;
+        }
+
+        Application.Current.Dispatcher.Invoke(() =>
+        {
+            IsAlertVisible = true;
+            AlertMessage = e.Message;
+        });
+    }
+}

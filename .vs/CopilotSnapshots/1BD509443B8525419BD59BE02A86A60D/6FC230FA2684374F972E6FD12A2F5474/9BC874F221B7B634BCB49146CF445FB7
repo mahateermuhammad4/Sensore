@@ -1,0 +1,298 @@
+﻿using System.Collections.ObjectModel;
+using System.Windows.Input;
+using Sensore.Infrastructure;
+using Sensore.Models;
+using Sensore.Services;
+
+namespace Sensore.ViewModels;
+
+public class ClinicianDashboardViewModel : ViewModelBase
+{
+    private readonly MainViewModel _mainViewModel;
+    private readonly PatientFrameQueryService _patientFrameQueryService;
+    private readonly ReportService _reportService;
+
+    private ClinicianPatientSummary? _selectedPatient;
+    private string _statusMessage = string.Empty;
+    private string _replyText = string.Empty;
+    private int? _currentFrameId;
+    private CommentDisplayItem? _selectedComment;
+    private DateTime? _reportDateFrom = DateTime.Today.AddDays(-1);
+    private DateTime? _reportDateTo = DateTime.Today;
+
+    public ClinicianDashboardViewModel(
+        MainViewModel mainViewModel,
+        User currentUser,
+        PatientFrameQueryService patientFrameQueryService,
+        ReportService reportService)
+    {
+        _mainViewModel = mainViewModel;
+        _patientFrameQueryService = patientFrameQueryService;
+        _reportService = reportService;
+        CurrentUser = currentUser;
+
+        RefreshPatientsCommand = new RelayCommand(async _ => await RefreshPatientsAsync());
+        ReplyToCommentCommand = new RelayCommand(async _ => await ReplyToCommentAsync());
+        GenerateReportCommand = new RelayCommand(async _ => await GenerateReportAsync());
+        OpenPatientDetailCommand = new RelayCommand(_ => OpenPatientDetail());
+        LogoutCommand = new RelayCommand(_ => _mainViewModel.NavigateToLogin());
+
+        _ = RefreshPatientsAsync();
+    }
+
+    public User CurrentUser { get; }
+
+    public ObservableCollection<ClinicianPatientSummary> PatientList { get; } = new();
+
+    public ObservableCollection<CommentDisplayItem> CommentThread { get; } = new();
+
+    public ClinicianPatientSummary? SelectedPatient
+    {
+        get => _selectedPatient;
+        set
+        {
+            _selectedPatient = value;
+            OnPropertyChanged();
+            _ = LoadSelectedPatientThreadAsync();
+        }
+    }
+
+    public CommentDisplayItem? SelectedComment
+    {
+        get => _selectedComment;
+        set
+        {
+            _selectedComment = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public string ReplyText
+    {
+        get => _replyText;
+        set
+        {
+            _replyText = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public string StatusMessage
+    {
+        get => _statusMessage;
+        set
+        {
+            _statusMessage = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public ICommand RefreshPatientsCommand { get; }
+
+    public ICommand ReplyToCommentCommand { get; }
+
+    public ICommand GenerateReportCommand { get; }
+
+    public ICommand OpenPatientDetailCommand { get; }
+
+    public DateTime? ReportDateFrom
+    {
+        get => _reportDateFrom;
+        set
+        {
+            _reportDateFrom = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public DateTime? ReportDateTo
+    {
+        get => _reportDateTo;
+        set
+        {
+            _reportDateTo = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public ICommand LogoutCommand { get; }
+
+    private async Task RefreshPatientsAsync()
+    {
+        var items = await _patientFrameQueryService.GetAssignedPatientSummariesAsync(CurrentUser.UserId);
+        PatientList.Clear();
+        foreach (var item in items)
+        {
+            PatientList.Add(item);
+        }
+
+        if (SelectedPatient == null && PatientList.Count > 0)
+        {
+            SelectedPatient = PatientList[0];
+        }
+    }
+
+    private async Task LoadSelectedPatientThreadAsync()
+    {
+        try
+        {
+            CommentThread.Clear();
+            _currentFrameId = null;
+
+            if (SelectedPatient == null)
+            {
+                return;
+            }
+
+            var latestCommentedFrameId = await _patientFrameQueryService.GetMostRecentCommentedFrameIdForClinicianAsync(
+                CurrentUser.UserId,
+                SelectedPatient.PatientId);
+
+            var targetFrameId = latestCommentedFrameId;
+            if (!targetFrameId.HasValue)
+            {
+                var latestFrame = await _patientFrameQueryService.GetLatestFrameForClinicianAsync(CurrentUser.UserId, SelectedPatient.PatientId);
+                targetFrameId = latestFrame?.FrameId;
+            }
+
+            if (!targetFrameId.HasValue)
+            {
+                StatusMessage = "No frame data available for selected patient.";
+                return;
+            }
+
+            _currentFrameId = targetFrameId.Value;
+            var comments = await _patientFrameQueryService.GetCommentsForPatientForClinicianAsync(CurrentUser.UserId, SelectedPatient.PatientId);
+            foreach (var item in FlattenComments(comments))
+            {
+                CommentThread.Add(item);
+            }
+
+            StatusMessage = comments.Count == 0
+                ? $"No comments found for {SelectedPatient.PatientName} yet."
+                : $"Loaded {comments.Count} comment(s) for {SelectedPatient.PatientName}.";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Unable to load comments: {ex.Message}";
+        }
+    }
+
+    private async Task ReplyToCommentAsync()
+    {
+        if (_currentFrameId is null)
+        {
+            StatusMessage = "No active frame selected for reply.";
+            return;
+        }
+
+        if (SelectedComment == null)
+        {
+            StatusMessage = "Select a comment to reply to.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(ReplyText))
+        {
+            StatusMessage = "Enter reply text before submitting.";
+            return;
+        }
+
+        await _patientFrameQueryService.AddClinicianReplyAsync(
+            CurrentUser.UserId,
+            SelectedComment.FrameId,
+            SelectedComment.CommentId,
+            ReplyText.Trim());
+
+        ReplyText = string.Empty;
+        await LoadSelectedPatientThreadAsync();
+        StatusMessage = "Reply submitted.";
+    }
+
+    private async Task GenerateReportAsync()
+    {
+        if (SelectedPatient == null)
+        {
+            StatusMessage = "Select a patient before generating a report.";
+            return;
+        }
+
+        try
+        {
+            var from = ReportDateFrom?.Date;
+            var to = ReportDateTo?.Date.AddDays(1).AddTicks(-1);
+
+            if (!from.HasValue || !to.HasValue)
+            {
+                StatusMessage = "Select both report dates.";
+                return;
+            }
+
+            var reportPath = await _reportService.GeneratePatientSummaryReportAsync(
+                CurrentUser.UserId,
+                SelectedPatient.PatientId,
+                DateTime.SpecifyKind(from.Value, DateTimeKind.Utc),
+                DateTime.SpecifyKind(to.Value, DateTimeKind.Utc));
+
+            StatusMessage = $"Report generated: {reportPath}";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Report generation failed: {ex.Message}";
+        }
+    }
+
+    private void OpenPatientDetail()
+    {
+        if (SelectedPatient == null)
+        {
+            StatusMessage = "Select a patient first.";
+            return;
+        }
+
+        _mainViewModel.NavigateTo(new PatientDetailViewModel(
+            _mainViewModel,
+            CurrentUser,
+            SelectedPatient,
+            _patientFrameQueryService,
+            _reportService));
+    }
+
+    private static IEnumerable<CommentDisplayItem> FlattenComments(IReadOnlyCollection<Comment> comments)
+    {
+        var byParent = comments
+            .GroupBy(c => c.ParentCommentId)
+            .ToDictionary(g => g.Key, g => g.OrderBy(x => x.CreatedAt).ToList());
+
+        foreach (var item in Traverse(null, 0))
+        {
+            yield return item;
+        }
+
+        IEnumerable<CommentDisplayItem> Traverse(int? parentId, int level)
+        {
+            if (!byParent.TryGetValue(parentId, out var children))
+            {
+                yield break;
+            }
+
+            foreach (var c in children)
+            {
+                yield return new CommentDisplayItem
+                {
+                    CommentId = c.CommentId,
+                    FrameId = c.FrameId,
+                    AuthorName = c.Author?.FullName ?? "Unknown",
+                    CreatedAt = c.CreatedAt,
+                    Content = c.Content,
+                    Level = level
+                };
+
+                foreach (var nested in Traverse(c.CommentId, level + 1))
+                {
+                    yield return nested;
+                }
+            }
+        }
+    }
+}

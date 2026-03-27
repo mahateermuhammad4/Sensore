@@ -1,0 +1,261 @@
+﻿<Application x:Class="Sensore.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:oxy="http://oxyplot.org/wpf"
+             xmlns:vm="clr-namespace:Sensore.ViewModels">
+    <Application.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVisibilityConverter" />
+
+        <DataTemplate DataType="{x:Type vm:LoginViewModel}">
+            <Border Padding="24" MaxWidth="420" HorizontalAlignment="Center" VerticalAlignment="Center" BorderBrush="#DDD" BorderThickness="1" CornerRadius="8">
+                <StackPanel>
+                    <TextBlock Text="SENSORE" FontSize="28" FontWeight="SemiBold" Margin="0,0,0,8" />
+                    <TextBlock Text="Pressure Ulcer Prevention System" Margin="0,0,0,20" Foreground="#666" />
+
+                    <TextBlock Text="Email" />
+                    <TextBox Text="{Binding Email, UpdateSourceTrigger=PropertyChanged}" Margin="0,4,0,12" MinHeight="32" />
+
+                    <TextBlock Text="Password" />
+                    <TextBox Text="{Binding Password, UpdateSourceTrigger=PropertyChanged}" Margin="0,4,0,12" MinHeight="32" />
+
+                    <Button Content="Log In" Command="{Binding LoginCommand}" MinHeight="34" />
+                    <TextBlock Text="{Binding ErrorMessage}" Foreground="#C62828" Margin="0,12,0,0" TextWrapping="Wrap" />
+                </StackPanel>
+            </Border>
+        </DataTemplate>
+
+        <DataTemplate DataType="{x:Type vm:PatientDashboardViewModel}">
+            <Grid Margin="24">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <TextBlock Text="Patient Dashboard" FontSize="26" FontWeight="SemiBold" />
+
+                <Border Grid.Row="1" Background="#FFC107" Padding="10" Margin="0,12,0,0"
+                        Visibility="{Binding IsAlertVisible, Converter={StaticResource BoolToVisibilityConverter}}">
+                    <DockPanel>
+                        <TextBlock Text="{Binding AlertMessage}" FontWeight="SemiBold" />
+                        <Button Content="Dismiss" Command="{Binding AcknowledgeAlertCommand}" Width="90" Margin="12,0,0,0" HorizontalAlignment="Right" />
+                    </DockPanel>
+                </Border>
+
+                <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,12,0,0">
+                    <Button Content="Import CSV" Width="120" Command="{Binding ImportCsvCommand}" />
+                    <TextBlock Margin="16,8,0,0" Text="{Binding StatusMessage}" TextWrapping="Wrap" />
+                </StackPanel>
+
+                <Grid Grid.Row="3" Margin="0,16,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="370" />
+                        <ColumnDefinition Width="20" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Grid.Column="0">
+                        <TextBlock Text="Live Heatmap" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8" />
+                        <Border BorderBrush="#DDD" BorderThickness="1" Padding="4" Background="White">
+                            <ItemsControl ItemsSource="{Binding HeatmapCells}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <UniformGrid Rows="32" Columns="32" />
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Rectangle Width="10" Height="10" Fill="{Binding Color}" StrokeThickness="0" />
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </Border>
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="2">
+                        <TextBlock Text="Current Metrics" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8" />
+                        <TextBlock Text="{Binding Ppi, StringFormat=PPI: {0:F0}}" />
+                        <TextBlock Text="{Binding ContactArea, StringFormat=Contact Area: {0:F2}%}" Margin="0,0,0,12" />
+
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                            <Button Content="1h" Width="46" Margin="0,0,8,0" Command="{Binding SelectTimePeriodCommand}" CommandParameter="1h" />
+                            <Button Content="6h" Width="46" Margin="0,0,8,0" Command="{Binding SelectTimePeriodCommand}" CommandParameter="6h" />
+                            <Button Content="24h" Width="52" Margin="0,0,8,0" Command="{Binding SelectTimePeriodCommand}" CommandParameter="24h" />
+                            <Button Content="7d" Width="46" Command="{Binding SelectTimePeriodCommand}" CommandParameter="7d" />
+                        </StackPanel>
+
+                        <Border BorderBrush="#DDD" BorderThickness="1" Padding="6" Background="White" Margin="0,0,0,10">
+                            <oxy:PlotView Height="210" Model="{Binding PpiPlotModel}" />
+                        </Border>
+
+                        <Border BorderBrush="#DDD" BorderThickness="1" Padding="6" Background="White" Margin="0,0,0,12">
+                            <oxy:PlotView Height="210" Model="{Binding ContactAreaPlotModel}" />
+                        </Border>
+
+                        <TextBlock Text="Frame Comments" FontSize="15" FontWeight="SemiBold" Margin="0,0,0,6" />
+                        <DockPanel Margin="0,0,0,8">
+                            <TextBox Text="{Binding CommentText, UpdateSourceTrigger=PropertyChanged}" MinHeight="34" Margin="0,0,8,0" VerticalAlignment="Center" />
+                            <Button Content="Submit" Width="80" Command="{Binding SubmitCommentCommand}" />
+                        </DockPanel>
+
+                        <Border BorderBrush="#DDD" BorderThickness="1" Padding="8" Background="White" Margin="0,0,0,12" MaxHeight="180">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                <ItemsControl ItemsSource="{Binding Comments}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <StackPanel Margin="{Binding ItemMargin}">
+                                                <TextBlock Text="{Binding AuthorName}" FontWeight="SemiBold" />
+                                                <TextBlock Text="{Binding CreatedAt, StringFormat={}{0:yyyy-MM-dd HH:mm}}" FontSize="11" Foreground="#666" />
+                                                <TextBlock Text="{Binding Content}" TextWrapping="Wrap" Margin="0,2,0,4" />
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </ScrollViewer>
+                        </Border>
+
+                        <Button Content="Log Out" Width="120" Command="{Binding LogoutCommand}" />
+                    </StackPanel>
+                </Grid>
+            </Grid>
+        </DataTemplate>
+
+        <DataTemplate DataType="{x:Type vm:ClinicianDashboardViewModel}">
+            <Grid Margin="24">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <DockPanel>
+                    <TextBlock Text="Clinician Dashboard" FontSize="26" FontWeight="SemiBold" />
+                    <Button Content="Refresh" Width="90" Margin="12,0,0,0" Command="{Binding RefreshPatientsCommand}" />
+                    <Button Content="Patient Detail" Width="110" Margin="12,0,0,0" Command="{Binding OpenPatientDetailCommand}" />
+                    <Button Content="Generate 24h Report" Width="150" Margin="12,0,0,0" Command="{Binding GenerateReportCommand}" />
+                </DockPanel>
+
+                <StackPanel Grid.Row="0" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,0,0,0">
+                    <TextBlock Text="From" VerticalAlignment="Center" Margin="0,0,8,0" />
+                    <DatePicker SelectedDate="{Binding ReportDateFrom}" Width="130" Margin="0,0,10,0" />
+                    <TextBlock Text="To" VerticalAlignment="Center" Margin="0,0,8,0" />
+                    <DatePicker SelectedDate="{Binding ReportDateTo}" Width="130" />
+                </StackPanel>
+
+                <Grid Grid.Row="1" Margin="0,16,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="360" />
+                        <ColumnDefinition Width="20" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Grid.Column="0">
+                        <TextBlock Text="Assigned Patients" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8" />
+                        <DataGrid ItemsSource="{Binding PatientList}" SelectedItem="{Binding SelectedPatient}" AutoGenerateColumns="False" Height="520">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Name" Binding="{Binding PatientName}" Width="*" />
+                                <DataGridTextColumn Header="PPI" Binding="{Binding LatestPpi, StringFormat={}{0:F0}}" Width="70" />
+                                <DataGridTextColumn Header="Alerts" Binding="{Binding ActiveAlertCount}" Width="70" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="2">
+                        <TextBlock Text="Comment Thread (Latest Frame)" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8" />
+
+                        <Border BorderBrush="#DDD" BorderThickness="1" Padding="8" Background="White" MaxHeight="440">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                <ListBox ItemsSource="{Binding CommentThread}" SelectedItem="{Binding SelectedComment}" BorderThickness="0">
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <StackPanel Margin="{Binding ItemMargin}">
+                                                <TextBlock Text="{Binding AuthorName}" FontWeight="SemiBold" />
+                                                <TextBlock Text="{Binding CreatedAt, StringFormat={}{0:yyyy-MM-dd HH:mm}}" FontSize="11" Foreground="#666" />
+                                                <TextBlock Text="{Binding Content}" TextWrapping="Wrap" Margin="0,2,0,4" />
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
+                            </ScrollViewer>
+                        </Border>
+
+                        <DockPanel Margin="0,10,0,0">
+                            <TextBox Text="{Binding ReplyText, UpdateSourceTrigger=PropertyChanged}" MinHeight="34" Margin="0,0,8,0" VerticalAlignment="Center" />
+                            <Button Content="Reply" Width="90" Command="{Binding ReplyToCommentCommand}" />
+                        </DockPanel>
+                    </StackPanel>
+                </Grid>
+
+                <DockPanel Grid.Row="2" Margin="0,12,0,0">
+                    <TextBlock Text="{Binding StatusMessage}" VerticalAlignment="Center" />
+                    <Button Content="Log Out" Width="120" HorizontalAlignment="Right" Command="{Binding LogoutCommand}" />
+                </DockPanel>
+            </Grid>
+        </DataTemplate>
+
+        <DataTemplate DataType="{x:Type vm:AdminDashboardViewModel}">
+            <Grid Margin="24">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <DockPanel>
+                    <TextBlock Text="Admin Dashboard" FontSize="26" FontWeight="SemiBold" />
+                    <Button Content="Refresh" Width="90" Margin="12,0,0,0" Command="{Binding RefreshCommand}" />
+                </DockPanel>
+
+                <Grid Grid.Row="1" Margin="0,16,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="2*" />
+                        <ColumnDefinition Width="20" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Grid.Column="0">
+                        <TextBlock Text="All Users" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8" />
+                        <DataGrid ItemsSource="{Binding UserList}" SelectedItem="{Binding SelectedUser}" AutoGenerateColumns="False" Height="380">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Name" Binding="{Binding FullName}" Width="*" />
+                                <DataGridTextColumn Header="Email" Binding="{Binding Email}" Width="*" />
+                                <DataGridTextColumn Header="Role" Binding="{Binding Role}" Width="100" />
+                                <DataGridCheckBoxColumn Header="Active" Binding="{Binding IsActive}" Width="70" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+
+                        <Button Content="Toggle Active for Selected User" Width="220" Margin="0,10,0,0" Command="{Binding ToggleUserActiveCommand}" />
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="2">
+                        <TextBlock Text="Create New User" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8" />
+                        <TextBlock Text="Email" />
+                        <TextBox Text="{Binding NewUserEmail, UpdateSourceTrigger=PropertyChanged}" Margin="0,4,0,8" />
+                        <TextBlock Text="Full Name" />
+                        <TextBox Text="{Binding NewUserFullName, UpdateSourceTrigger=PropertyChanged}" Margin="0,4,0,8" />
+                        <TextBlock Text="Password" />
+                        <TextBox Text="{Binding NewUserPassword, UpdateSourceTrigger=PropertyChanged}" Margin="0,4,0,8" />
+                        <TextBlock Text="Role" />
+                        <ComboBox ItemsSource="{Binding Roles}" SelectedItem="{Binding NewUserRole}" Margin="0,4,0,10" />
+                        <Button Content="Create User" Width="120" Command="{Binding CreateUserCommand}" />
+
+                        <Separator Margin="0,16,0,12" />
+
+                        <TextBlock Text="Assign Patient to Clinician" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8" />
+                        <TextBlock Text="Clinician" />
+                        <ComboBox ItemsSource="{Binding Clinicians}" SelectedItem="{Binding SelectedClinician}" DisplayMemberPath="FullName" Margin="0,4,0,8" />
+                        <TextBlock Text="Patient" />
+                        <ComboBox ItemsSource="{Binding Patients}" SelectedItem="{Binding SelectedPatient}" DisplayMemberPath="FullName" Margin="0,4,0,10" />
+                        <Button Content="Assign" Width="120" Command="{Binding AssignPatientCommand}" />
+                    </StackPanel>
+                </Grid>
+
+                <DockPanel Grid.Row="2" Margin="0,12,0,0">
+                    <TextBlock Text="{Binding StatusMessage}" VerticalAlignment="Center" />
+                    <Button Content="Log Out" Width="120" HorizontalAlignment="Right" Command="{Binding LogoutCommand}" />
+                </DockPanel>
+            </Grid>
+        </DataTemplate>
+    </Application.Resources>
+</Application>
