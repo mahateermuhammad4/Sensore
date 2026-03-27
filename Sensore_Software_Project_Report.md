@@ -181,46 +181,59 @@ We designed a relational database deployed locally via a simple SQLite `sensore.
 - **ClinicianPatients Table:** A joining table with a composite primary key to manage the many-to-many relationship of assigning multiple patients to specific clinicians safely.
 
 ```mermaid
-erDiagram
-    Users {
-        int UserId PK
-        string Email UK
-        string PasswordHash
-        string Role "Patient, Clinician, Admin"
-        int IsActive
-    }
-    SensorFrames {
-        int FrameId PK
-        int UserId FK
-        string Timestamp
-        string FrameData "1024 pixel array"
-        float Ppi
-        float ContactArea
-    }
-    Alerts {
-        int AlertId PK
-        int FrameId FK "Unique (1:1)"
-        boolean IsAcknowledged
-    }
-    Comments {
-        int CommentId PK
-        int FrameId FK
-        int AuthorId FK
-        int ParentCommentId FK "Nullable (Recursive 1:N)"
-    }
-    ClinicianPatients {
-        int ClinicianId PK,FK
-        int PatientId PK,FK
-    }
+flowchart TD
+    %% Entities (Rectangles)
+    Users[Users]
+    Frames[SensorFrames]
+    Alerts[Alerts]
+    Comments[Comments]
+    ClinPat[ClinicianPatients]
 
-    Users ||--o{ SensorFrames : "1 to Many (generates)"
-    Users ||--o{ Comments : "1 to Many (authors)"
-    Users ||--o{ ClinicianPatients : "1 to Many (assigned to)"
-    
-    SensorFrames ||--o| Alerts : "1 to 0..1 (triggers)"
-    SensorFrames ||--o{ Comments : "1 to Many (context for)"
-    
-    Comments |o--o{ Comments : "0..1 to Many (replies to)"
+    %% Relationships (Diamonds)
+    RelGen{generates}
+    RelTrig{triggers}
+    RelAuth{authors}
+    RelCont{context}
+    RelRep{replies to}
+    RelAssign{assigned}
+
+    %% User Attributes (Ovals)
+    U_Id([UserId PK])
+    U_Email([Email UK])
+    U_Role([Role])
+    Users --- U_Id
+    Users --- U_Email
+    Users --- U_Role
+
+    %% Frame Attributes (Ovals)
+    F_Id([FrameId PK])
+    F_Time([Timestamp])
+    F_Ppi([PPI])
+    Frames --- F_Id
+    Frames --- F_Time
+    Frames --- F_Ppi
+
+    %% Alert Attributes (Ovals)
+    A_Id([AlertId PK])
+    A_Ack([IsAcknowledged])
+    Alerts --- A_Id
+    Alerts --- A_Ack
+
+    %% Comment Attributes (Ovals)
+    C_Id([CommentId PK])
+    C_Text([Content])
+    Comments --- C_Id
+    Comments --- C_Text
+
+    %% Cardinality Connections
+    Users -- 1 --- RelGen --- N --> Frames
+    Users -- 1 --- RelAuth --- N --> Comments
+    Users -- 1 --- RelAssign --- N --> ClinPat
+
+    Frames -- 1 --- RelTrig --- 0..1 --> Alerts
+    Frames -- 1 --- RelCont --- N --> Comments
+
+    Comments -- 0..1 --- RelRep --- N --> Comments
 ```
 
 ### 4.3 MVVM Class Structure
